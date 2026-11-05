@@ -1,7 +1,7 @@
 /* Checkout Challenge service worker.
    Caches the app shell so the app opens with no network after the first visit.
    When you change any file, bump CACHE so phones pick up the new version. */
-var CACHE = 'checkout-challenge-v6';
+var CACHE = 'checkout-challenge-v7';
 var ASSETS = [
   './',
   'index.html',

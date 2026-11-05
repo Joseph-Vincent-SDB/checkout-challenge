@@ -41,7 +41,7 @@ function prune(o) {                      // RTDB drops nulls and empty objects
 
 export function startMock() {
   let db = {};
-  const ctl = { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, filter: null };
+  const ctl = { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null, filter: null };
   const stats = { total: 0, byMethod: {}, log: [] };
   const getAt = segs => { let n = db; for (const s of segs) { if (n && typeof n === 'object' && s in n) n = n[s]; else return null; } return n === undefined ? null : n; };
   const setAt = (segs, val) => {
@@ -71,6 +71,8 @@ export function startMock() {
         const silent = u.searchParams.get('print') === 'silent';
         // rules: only /events/<8-char team>/... is reachable
         if (segs[0] !== 'events' || !segs[1] || segs[1].length !== 8) return send(401, { error: 'Permission denied' });
+        if (ctl.garbage) { res.writeHead(200, { ...cors, 'content-type': 'text/html' }); return res.end('<html><body>Please log in to the campus Wi-Fi</body></html>'); }   // captive portal
+        if (ctl.weird !== null && req.method === 'GET') return send(200, ctl.weird);                                                                                // valid JSON of the wrong shape
         if (req.method === 'GET') return send(200, getAt(segs));
         if (ctl.deny) return send(401, { error: 'Permission denied' });
         if (req.method === 'PUT' || req.method === 'PATCH') {
@@ -104,7 +106,7 @@ export function startMock() {
       url: `http://127.0.0.1:${server.address().port}`,
       ctl, stats,
       db: () => db,
-      reset() { db = {}; Object.assign(ctl, { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false }); stats.total = 0; stats.byMethod = {}; stats.log = []; },
+      reset() { db = {}; Object.assign(ctl, { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null }); stats.total = 0; stats.byMethod = {}; stats.log = []; },
       get: segs => getAt(segs),
       close: () => new Promise(r => { server.closeAllConnections?.(); server.close(r); })
     });

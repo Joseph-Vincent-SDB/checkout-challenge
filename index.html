@@ -326,6 +326,8 @@ function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return {'&
 function ico(n, cls) { return '<svg class="i ' + (cls || '') + '" aria-hidden="true"><use href="#i-' + n + '"/></svg>'; }
 function qById(id) { for (var i = 0; i < QUESTIONS.length; i++) if (QUESTIONS[i].id === id) return QUESTIONS[i]; return null; }
 function nn(v, d) { return (typeof v === 'number' && isFinite(v) && v >= 0) ? Math.floor(v) : d; }
+function cn(v) { return Math.min(100000, nn(v, 0)); }                                   // counters: the database accepts 0 to 100000
+function an(v) { return (typeof v === 'number' && isFinite(v)) ? Math.max(-5000, Math.min(5000, Math.round(v))) : 0; }   // adjustments: -5000 to 5000
 function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
 function zeroC() { var c = {}; COUNTERS.forEach(function (k) { c[k] = 0; }); return c; }
 function newId() {
@@ -370,9 +372,9 @@ function fresh() {
 }
 function cleanRec(r) {
   if (!r || typeof r !== 'object' || !r.c || typeof r.c !== 'object') return null;
-  var o = { l: typeof r.l === 'string' ? r.l.slice(0, 24) : '', c: {}, adj: (typeof r.adj === 'number' && isFinite(r.adj)) ? Math.round(r.adj) : 0,
+  var o = { l: typeof r.l === 'string' ? r.l.slice(0, 24) : '', c: {}, adj: an(r.adj),
     first: typeof r.first === 'number' ? r.first : null, last: typeof r.last === 'number' ? r.last : null, hb: nn(r.hb, 0), rev: nn(r.rev, 0) };
-  COUNTERS.forEach(function (k) { o.c[k] = nn(r.c[k], 0); });
+  COUNTERS.forEach(function (k) { o.c[k] = cn(r.c[k]); });
   return o;
 }
 function normalise(o) {
@@ -381,10 +383,10 @@ function normalise(o) {
   if (typeof o.id === 'string' && /^[a-z0-9]{6,24}$/i.test(o.id)) f.id = o.id;
   f.label = typeof o.label === 'string' ? o.label.slice(0, 24) : '';
   f.epoch = (typeof o.epoch === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(o.epoch)) ? o.epoch : 'e0';
-  f.startStock = nn(o.startStock, f.startStock);
-  for (var k in f.c) f.c[k] = nn(o.c && o.c[k], 0);
-  if (typeof o.adj === 'number' && isFinite(o.adj)) f.adj = Math.round(o.adj);
-  else if (typeof o.stock === 'number') f.adj = nn(o.stock, f.startStock) - f.startStock + f.c.served;   // migrate v1 saves (their stock already had serves taken off)
+  f.startStock = Math.min(5000, nn(o.startStock, f.startStock));
+  for (var k in f.c) f.c[k] = cn(o.c && o.c[k]);
+  if (typeof o.adj === 'number' && isFinite(o.adj)) f.adj = an(o.adj);
+  else if (typeof o.stock === 'number') f.adj = an(nn(o.stock, f.startStock) - f.startStock + f.c.served);   // migrate v1 saves (their stock already had serves taken off)
   f.first = typeof o.first === 'number' ? o.first : null;
   f.last = typeof o.last === 'number' ? o.last : null;
   f.rev = nn(o.rev, 0); f.acked = Math.min(nn(o.acked, 0), f.rev);
@@ -547,7 +549,7 @@ function pollNow(timeout) {
       if (S.team !== team || S.epoch !== ep) return;
       var np = {}, now = Date.now();
       if (devs && typeof devs === 'object') for (var k in devs) {
-        if (k === S.id) continue;
+        if (k === S.id || !/^[a-z0-9]{6,24}$/i.test(k)) continue;
         var r = cleanRec(devs[k]); if (!r) continue;
         np[k] = r;
         var sn = net.seen[k];
@@ -558,6 +560,7 @@ function pollNow(timeout) {
       var mine = devs && devs[S.id], cloudRev = mine && typeof mine.rev === 'number' ? mine.rev : 0;
       if (S.acked > 0 && cloudRev < S.acked) S.acked = cloudRev;          // our last write did not land: send it again
       net.pollOk = Date.now(); net.pollFails = 0; net.pollErr = ''; net.pollMsg = ''; net.nextPoll = Date.now() + CONFIG.pollMs;
+      if (net.pushFails > 0) net.nextPush = 0;            // the network demonstrably works again: retry unsent changes now, not after the back-off
     } catch (e) { netErr(e, 'poll'); net.pollFails++; net.nextPoll = Date.now() + Math.max(CONFIG.pollMs, backoff(net.pollFails)); }
     finally { net.polling = false; liveUpdate(); }
   })();
@@ -1032,7 +1035,7 @@ async function doServe() {
   serving = true;
   var btn = $('#servebtn'); if (btn) btn.disabled = true;
   /* near the end, check the team's latest count first so two phones cannot both hand out the last cups */
-  if (syncOn() && syncState() === 'ok' && remaining() <= CONFIG.lowStock) { try { await pollNow(1500); } catch (e) {} }
+  if (syncOn() && syncState() === 'ok' && remaining() <= CONFIG.lowStock) { try { await Promise.race([pollNow(1500), new Promise(function (r) { setTimeout(r, 1600); })]); } catch (e) {} }
   if (cur() !== cu) { serving = false; return; }
   if (remaining() > 0) { S.c.served++; commit(); endCustomer(); }
   else { serving = false; toast('Sold out: another phone just served the last one'); render(); }
@@ -1040,7 +1043,7 @@ async function doServe() {
 function endLost() { S.c.lost++; commit(); endCustomer(); }
 function adjStock(d) {
   if (d < 0 && remaining() <= 0) return;
-  S.adj += d; commit(); liveUpdate();
+  S.adj = an(S.adj + d); commit(); liveUpdate();
 }
 async function copyText(t) {
   try { await navigator.clipboard.writeText(t); return true; } catch (e) {}
@@ -1145,6 +1148,21 @@ window.addEventListener('popstate', function () {
 });
 var rz = null;
 window.addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { var cu = cur(); if (view === 'flow' && cu && cu.step === 'follow') render(); }, 200); });
+
+/* The same app open twice on one phone (a browser tab and the installed app, or two tabs) shares one storage
+   and one phone identity. When the other copy saves, adopt its state so the two copies mirror each other
+   instead of overwriting each other. */
+window.addEventListener('storage', function (e) {
+  if (e.key !== KEY || !e.newValue) return;
+  var prevCur = JSON.stringify(S.cur), prevTeam = S.team, next;
+  try { next = normalise(JSON.parse(e.newValue)); } catch (err) { return; }
+  if (next.id !== S.id) return;                       // a different phone identity: not ours to mirror
+  S = next;
+  if (S.team !== prevTeam) wakeSync();
+  var typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (JSON.stringify(S.cur) !== prevCur && !typing && !modal) { view = S.cur ? 'flow' : (view === 'flow' ? 'home' : view); render(); }
+  else liveUpdate();
+});
 
 /* test and debugging hooks */
 window.CC = { QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,

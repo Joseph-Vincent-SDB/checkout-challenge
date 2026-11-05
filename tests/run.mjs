@@ -1,7 +1,9 @@
 // Checkout Challenge test suite (Playwright, Chromium with mobile emulation).
 // Run:  cd tests && npm install && npx playwright install chromium && npm test
 // Optional: CHROME_EXE=/path/to/chrome node run.mjs   (use a Chromium you already have)
-import { chromium, devices } from 'playwright';
+import { chromium, webkit, firefox, devices } from 'playwright';
+const ENGINE = { chromium, webkit, firefox }[process.env.BROWSER || 'chromium'];   // BROWSER=webkit runs the Safari engine
+const IS_CHROMIUM = (process.env.BROWSER || 'chromium') === 'chromium';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,7 +33,7 @@ const results = [];
 function check(name, ok, detail = '') { results.push({ name, ok: !!ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  [' + detail + ']' : ''}`); }
 
 /* ---------- helpers ---------- */
-const browser = await chromium.launch(process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
+const browser = await ENGINE.launch(IS_CHROMIUM && process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
 // every phone in this suite runs on its own (sharing switched off), whatever the app's default settings
 const _newContext = browser.newContext.bind(browser);
 browser.newContext = async o => { const c = await _newContext(o); await c.addInitScript(() => { try { localStorage.setItem('ecomsoc-sync-url', 'off'); } catch (e) {} }); return c; };
@@ -39,7 +41,7 @@ function devOpts(name) {
   const d = { ...devices[name] }; delete d.defaultBrowserType; return d;
 }
 async function newPage(opts = {}, init) {
-  const ctx = await browser.newContext({ ...opts, permissions: ['clipboard-read', 'clipboard-write'] });
+  const ctx = await browser.newContext({ ...opts, permissions: IS_CHROMIUM ? ['clipboard-read', 'clipboard-write'] : [] });
   if (init) await ctx.addInitScript(init);
   const page = await ctx.newPage();
   page.errors = [];
@@ -281,7 +283,7 @@ for (const name of DEVICES) {
   await page.screenshot({ path: path.join(SHOTS, '10-summary.png') });
   await tap(page, '[data-act=copy]'); await wait(300);
   const clip = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
-  check('Copy summary puts plain text on the clipboard', /Customers: 4/.test(clip) && /Food remaining: 77 of 80/.test(clip) && !clip.includes('\u2014'), clip.split('\n').slice(0, 3).join(' / '));
+  if (IS_CHROMIUM) check('Copy summary puts plain text on the clipboard', /Customers: 4/.test(clip) && /Food remaining: 77 of 80/.test(clip) && !clip.includes('\u2014'), clip.split('\n').slice(0, 3).join(' / '));
   // stock adjust
   await tap(page, '[data-act="stock+"]'); await tap(page, '[data-act="stock-"]'); await tap(page, '[data-act="stock-"]');
   check('Manual stock adjust works', (await rem(page)) === 76);

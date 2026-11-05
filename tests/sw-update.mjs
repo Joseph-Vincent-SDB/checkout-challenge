@@ -1,6 +1,8 @@
 // Checks that a new version of the app installs fully and reloads itself, even when the web host tells
 // browsers to cache files for 10 minutes (as GitHub Pages does), and never reloads in the middle of a customer.
-import { chromium, devices } from 'playwright';
+import { chromium, webkit, firefox, devices } from 'playwright';
+const ENGINE = { chromium, webkit, firefox }[process.env.BROWSER || 'chromium'];   // BROWSER=webkit runs the Safari engine
+const IS_CHROMIUM = (process.env.BROWSER || 'chromium') === 'chromium';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,7 +31,7 @@ const check = (n, ok, d = '') => { results.push(ok); console.log(`${ok ? 'PASS' 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const until = async (fn, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { try { const v = await fn(); if (v) return v; } catch (e) {} await sleep(150); } return false; };
 
-const browser = await chromium.launch(process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
+const browser = await ENGINE.launch(IS_CHROMIUM && process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
 const D = { ...devices['iPhone SE (3rd gen)'] }; delete D.defaultBrowserType; D.viewport = { width: 375, height: 667 };
 const ctx = await browser.newContext(D); await ctx.addInitScript(() => { try { localStorage.setItem('ecomsoc-sync-url', 'off'); } catch (e) {} });
 const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));

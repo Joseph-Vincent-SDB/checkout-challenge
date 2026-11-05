@@ -2,7 +2,9 @@
 // of the app and a REAL database, with random offline blips, refreshes, app-switching and settings taps.
 // At the end every phone, and the database, must agree exactly, with no errors.
 //   BASE_URL=https://.../ SYNC_URL=https://<db>.firebasedatabase.app DURATION_S=240 PHONES=5 node soak.mjs
-import { chromium, devices } from 'playwright';
+import { chromium, webkit, firefox, devices } from 'playwright';
+const ENGINE = { chromium, webkit, firefox }[process.env.BROWSER || 'chromium'];   // BROWSER=webkit runs the Safari engine
+const IS_CHROMIUM = (process.env.BROWSER || 'chromium') === 'chromium';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,11 +21,16 @@ function check(name, ok, detail = '') { results.push({ name, ok: !!ok, detail })
 const rest = async (m, p) => { const r = await fetch(`${DB}/${p}.json`, { method: m }); return r.status === 200 ? r.json() : null; };
 
 const D = { ...devices['iPhone SE (3rd gen)'] }; delete D.defaultBrowserType; D.viewport = { width: 375, height: 667 };
-const browser = await chromium.launch(process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
+const launchChromium = () => chromium.launch(process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
+const MIX = process.env.MIX === '1';
+const browser = MIX ? await launchChromium() : await ENGINE.launch(IS_CHROMIUM && process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
+const browserWk = MIX ? await webkit.launch() : null;
+const STOCK = +process.env.STOCK || 0;
+if (STOCK) await fetch(`${DB}/events/${TEAM}/meta.json?print=silent`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ epoch: 'e0', startStock: STOCK, resetAt: { '.sv': 'timestamp' }, by: 'soak' }) });
 const phones = [];
 for (let i = 0; i < N; i++) {
-  const ctx = await browser.newContext({ ...D });
-  const page = await ctx.newPage(); page.ctx = ctx; page.i = i; page.errors = []; page.transient = 0; page.dbReqs = 0; page.stats = { customers: 0, offline: 0, reloads: 0, hidden: 0, summary: 0, cancelled: 0, skipped: 0 };
+  const useWk = MIX && i % 2 === 1; const ctx = await (useWk ? browserWk : browser).newContext({ ...D });
+  const page = await ctx.newPage(); page.ctx = ctx; page.i = i; page.engine = useWk ? 'webkit' : 'chromium'; page.errors = []; page.transient = 0; page.dbReqs = 0; page.stats = { customers: 0, offline: 0, reloads: 0, hidden: 0, summary: 0, cancelled: 0, skipped: 0 };
   page.on('pageerror', e => page.errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|net::ERR|Access-Control|Failed to fetch|Load failed/.test(m.text())) page.errors.push('console: ' + m.text()); });
   page.on('request', r => { if (r.url().startsWith(DB)) page.dbReqs++; });
@@ -32,6 +39,9 @@ for (let i = 0; i < N; i++) {
   phones.push(page);
 }
 console.log(`Team ${TEAM}: ${N} phones on ${BASE} for ${DURATION / 1000}s`);
+const heap = async p => p.evaluate(() => (performance.memory ? performance.memory.usedJSHeapSize : 0)).catch(() => 0);
+const storeSize = async p => p.evaluate(() => { try { return (localStorage.getItem('ecomsoc-checkout-challenge-v1') || '').length; } catch (e) { return 0; } }).catch(() => 0);
+const heap0 = await Promise.all(phones.map(heap));
 const t0 = Date.now(), deadline = t0 + DURATION;
 
 async function tapq(p, sel) { await sleep(330); await p.click(sel, { timeout: 4000 }); }
@@ -102,6 +112,7 @@ const ticker = setInterval(async () => {
 await Promise.all(phones.map(worker));
 clearInterval(ticker);
 
+const heap1 = await Promise.all(phones.map(heap)), store1 = await Promise.all(phones.map(storeSize));
 /* ---------- settle: everyone online and visible, then compare ---------- */
 for (const p of phones) { await p.ctx.setOffline(false); await p.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }); document.dispatchEvent(new Event('visibilitychange')); }); }
 const settled = async () => { for (let k = 0; k < 60; k++) { const st = await Promise.all(phones.map(p => p.evaluate(() => [CC.syncState(), CC.unsent()]))); if (st.every(([s, u]) => s === 'ok' && u === 0)) return true; await sleep(500); } return false; };
@@ -125,17 +136,21 @@ check('Each phone\'s own tallies are internally consistent (won = correct, hot +
 const over = Math.max(0, -expectedRem);
 check('Food never over-served by more than 2 (two-phone tap race at the very end only)', over <= 2, `remaining=${expectedRem}`);
 check('No JavaScript errors on any phone', phones.every(p => p.errors.length === 0), phones.flatMap(p => p.errors.map(e => `phone${p.i + 1}: ${e}`)).join(' | '));
+const growth = heap1.map((h, i) => h0Safe(heap0[i], h));
+function h0Safe(a, b) { return a && b ? b / a : 0; }
+check('Memory does not grow without limit (JS heap at the end is under 4x the start, Chromium phones)', growth.every(g => g === 0 || g < 4), growth.map(g => g ? g.toFixed(2) + 'x' : 'n/a').join(', ') + ' | heap MB: ' + heap1.map(h => h ? (h / 1048576).toFixed(1) : 'n/a').join(', '));
+check('Saved data on each phone stays small (under 20 KB)', store1.every(s => s < 20000), store1.join(', ') + ' chars');
 const secs = (Date.now() - t0) / 1000;
 const rates = phones.map(p => p.dbReqs / secs);
 check('Network use is gentle: under 1.6 requests per second per phone on average', rates.every(r => r < 1.6), rates.map(r => r.toFixed(2)).join(', '));
-console.log('\nPer phone: ' + phones.map(p => `#${p.i + 1} customers=${snap[p.i].c.customers} served=${snap[p.i].c.served} retries=${snap[p.i].c.retries} skips=${snap[p.i].c.skips} offlineBlips=${p.stats.offline} hidden=${p.stats.hidden} reloads=${p.stats.reloads} cancelled=${p.stats.cancelled} transientHiccups=${p.transient}`).join('\n          '));
+console.log('\nPer phone: ' + phones.map(p => `#${p.i + 1} (${p.engine}) customers=${snap[p.i].c.customers} served=${snap[p.i].c.served} retries=${snap[p.i].c.retries} skips=${snap[p.i].c.skips} offlineBlips=${p.stats.offline} hidden=${p.stats.hidden} reloads=${p.stats.reloads} cancelled=${p.stats.cancelled} transientHiccups=${p.transient}`).join('\n          '));
 console.log(`Totals: customers=${sum.customers} served=${sum.served} correct=${sum.correct} wrong=${sum.wrong} skips=${sum.skips} food left=${expectedRem}`);
 
 /* ---------- clean up ---------- */
 for (const ep of Object.keys((await rest('GET', `events/${TEAM}/epochs`)) || {})) for (const id of Object.keys((await rest('GET', `events/${TEAM}/epochs/${ep}/devices`)) || {})) await fetch(`${DB}/events/${TEAM}/epochs/${ep}/devices/${id}.json`, { method: 'DELETE' });
 await fetch(`${DB}/events/${TEAM}/meta.json`, { method: 'DELETE' });
 for (const p of phones) await p.ctx.close().catch(() => {});
-await browser.close();
+await browser.close(); if (browserWk) await browserWk.close();
 const failed = results.filter(r => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} soak checks passed`);
 fs.writeFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'last-soak-run.json'), JSON.stringify({ passed: results.length - failed.length, total: results.length, failed, sum, expectedRem }, null, 2));

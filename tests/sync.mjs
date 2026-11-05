@@ -2,7 +2,9 @@
 // Several emulated phones share one team. By default they talk to a local mock of the Firebase
 // Realtime Database (tests/mock-rtdb.mjs) that can inject faults. To run the basic checks against
 // a REAL database instead:  SYNC_URL=https://<db>.firebasedatabase.app node sync.mjs --live
-import { chromium, devices } from 'playwright';
+import { chromium, webkit, firefox, devices } from 'playwright';
+const ENGINE = { chromium, webkit, firefox }[process.env.BROWSER || 'chromium'];   // BROWSER=webkit runs the Safari engine
+const IS_CHROMIUM = (process.env.BROWSER || 'chromium') === 'chromium';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,7 +24,7 @@ await new Promise(r => web.listen(0, '127.0.0.1', r));
 const BASE = process.env.BASE_URL || `http://127.0.0.1:${web.address().port}/`;   // BASE_URL=https://... tests a deployed copy
 const mock = LIVE ? null : await startMock();
 const DB_URL = LIVE ? process.env.SYNC_URL : mock.url;
-const browser = await chromium.launch(process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
+const browser = await ENGINE.launch(IS_CHROMIUM && process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
 const D = { ...devices['iPhone SE (3rd gen)'] }; delete D.defaultBrowserType; D.viewport = { width: 375, height: 667 };
 
 const results = [];
@@ -34,7 +36,7 @@ const newTeam = () => Array.from({ length: 8 }, () => alphabet[Math.floor(Math.r
 let TEAM = newTeam();
 const phones = [];
 async function phone(label, o = {}) {
-  const ctx = await browser.newContext({ ...D, permissions: ['clipboard-read', 'clipboard-write'] });
+  const ctx = await browser.newContext({ ...D, permissions: IS_CHROMIUM ? ['clipboard-read', 'clipboard-write'] : [] });
   if (!process.env.NO_URL_OVERRIDE) await ctx.addInitScript(([k, u]) => { try { localStorage.setItem(k, u); } catch (e) {} }, ['ecomsoc-sync-url', DB_URL]);   // NO_URL_OVERRIDE=1: use the URL built into the app
   const page = await ctx.newPage(); page.ctx = ctx; page.errors = [];
   page.on('pageerror', e => page.errors.push('pageerror: ' + e.message));
@@ -204,8 +206,8 @@ if (mock) {   // fault injection needs the mock database
   check('Summary screen on C lists all 3 phones and the shared totals', /Phone A/.test(await C.innerText('#phones')) && /Phone B/.test(await C.innerText('#phones')) && /7\s*Food served/i.test((await C.innerText('#stats')).replace(/\n/g, ' ')), (await C.innerText('#phones')).replace(/\n/g, ' ').slice(0, 120));
   // copy summary
   await tap(C, '[data-act=copy]'); await wait(300);
-  const clip = await C.evaluate(() => navigator.clipboard.readText());
-  check('Copied summary contains shared totals and a line per phone', /Customers: 7/.test(clip) && /Food served: 7/.test(clip) && /Phone A: 4 customers, 4 served/.test(clip) && /Shared across 3 phones/.test(clip), clip.split('\n').slice(0, 4).join(' / '));
+  const clip = IS_CHROMIUM ? await C.evaluate(() => navigator.clipboard.readText()) : '';
+  if (IS_CHROMIUM) check('Copied summary contains shared totals and a line per phone', /Customers: 7/.test(clip) && /Food served: 7/.test(clip) && /Phone A: 4 customers, 4 served/.test(clip) && /Shared across 3 phones/.test(clip), clip.split('\n').slice(0, 4).join(' / '));
   // reset all
   await tap(A, '[data-act=summary]'); await A.waitForSelector('[data-hold]');
   const hb = await A.$('[data-hold]'); await hb.scrollIntoViewIfNeeded(); const bb = await hb.boundingBox();
@@ -298,6 +300,24 @@ if (mock) {   // fault injection needs the mock database
   await reset();
 }
 function fmtCode(c) { return c.slice(0, 4) + '-' + c.slice(4); }
+
+/* ===================== 10b. the app open twice on one phone ===================== */
+{
+  const A = await phone('Phone A'); const B = await phone('Phone B');
+  await until(async () => (await st(A)) === 'ok');
+  const ctx = A.ctx; const A2 = await ctx.newPage(); A2.errors = []; A2.on('pageerror', e => A2.errors.push(e.message));
+  await A2.goto(BASE); await A2.waitForSelector('#app *');
+  check('A second copy of the app on the same phone starts already on the team (same storage)', await until(async () => (await A2.evaluate(() => CC.state().team)) === TEAM && (await A2.evaluate(() => CC.state().id)) === (await A.evaluate(() => CC.state().id)), 6000));
+  await uiServe(A);
+  check('A customer served in copy 1 shows up in copy 2 of the same phone straight away', await until(async () => (await A2.evaluate(() => CC.state().c.served)) === 1, 4000), 'copy2 served=' + await A2.evaluate(() => CC.state().c.served));
+  await uiServe(A2);
+  check('...and a customer served in copy 2 shows up in copy 1', await until(async () => (await A.evaluate(() => CC.state().c.served)) === 2, 4000), 'copy1 served=' + await A.evaluate(() => CC.state().c.served));
+  check('The other phone sees exactly 2 served (not 1, not 3) and only one record exists for the phone', await until(async () => (await rem(B)) === 78, 8000) && Object.keys(await cloudDevices()).length === 2, `B=${await rem(B)} records=${Object.keys(await cloudDevices()).length}`);
+  check('Both copies agree and nothing is left unsent', (await rem(A)) === (await rem(A2)) && (await unsent(A)) === 0 && (await unsent(A2)) === 0);
+  A.errors.push(...A2.errors);
+  check('No JS errors', A.errors.length === 0, A.errors.join(' | '));
+  await reset();
+}
 
 /* ===================== 11. database says no ===================== */
 if (mock) {   // fault injection needs the mock database
