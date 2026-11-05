@@ -210,6 +210,21 @@ ol.how b{font-weight:900}
 .sheet textarea{width:100%;height:180px;font:600 16px/1.3 ui-monospace,Menlo,monospace;border:2px solid var(--ink);border-radius:12px;padding:8px}
 .toast{position:fixed;left:50%;bottom:calc(96px + var(--safe-b));transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:99px;font-weight:800;font-size:18px;z-index:30;max-width:90vw;text-align:center}
 
+
+/* sharing status */
+.syncrow{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:8px 14px;border:3px solid var(--ink);border-radius:16px;background:#fff;text-align:left;font-weight:800;font-size:17px;line-height:1.15}
+.syncrow small{display:block;font-weight:600;font-size:14px;color:var(--ink2);margin-top:1px}
+.syncrow .dot{flex:none;width:16px;height:16px;border-radius:50%;background:#999;border:2px solid var(--ink)}
+.syncrow.ok{background:var(--ok-soft);border-color:var(--ok)}
+.syncrow.ok .dot{background:var(--ok)}
+.syncrow.warn{background:var(--gold-soft)}
+.syncrow.warn .dot{background:var(--warn)}
+.syncrow.bad{background:var(--bad-soft);border-color:var(--bad)}
+.syncrow.bad .dot{background:var(--bad)}
+.syncrow:active{filter:brightness(.96)}
+.kv .r{text-align:right}
+small.muted{font-weight:600;font-size:14px;color:var(--ink2)}
+
 @media (max-height:600px){
   .btn.big{min-height:72px}
   .main{gap:8px}
@@ -257,7 +272,10 @@ var CONFIG = {
   retries: 1,              // extra questions after a wrong answer (0 = one shot)
   rrp: 15,                 // price tag decoration only. The food is always free.
   discountLabel: '90% OFF',
-  dropMs: 950              // length of the deal drop moment
+  dropMs: 950,             // length of the deal drop moment
+  syncUrl: '',             // Firebase Realtime Database URL that shares the food count between phones (see README)
+  pollMs: 2000,            // how often each phone checks the team's numbers
+  heartbeatMs: 15000       // how often an idle phone says it is still online
 };
 
 /* ============================================================
@@ -290,8 +308,15 @@ var QUESTIONS = [
 /* ============================ END OF EDITABLE DATA ============================ */
 
 var LETTERS = ['A', 'B', 'C', 'D'];
-var KEY = 'ecomsoc-checkout-challenge-v1';
+var APP_VERSION = '2.0';
+var KEY = 'ecomsoc-checkout-challenge-v1';        // same key as v1: old data is migrated
+var URLKEY = 'ecomsoc-sync-url';                  // optional override, used by tests
+var COUNTERS = ['customers', 'follows', 'already', 'correct', 'wrong', 'retries', 'skips', 'hot', 'full', 'won', 'lost', 'served'];
+var CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no I, O, 0, 1
 var PROFILE_URL = 'https://www.instagram.com/' + CONFIG.handle + '/';
+var SYNC_URL = (CONFIG.syncUrl || '');
+try { SYNC_URL = localStorage.getItem(URLKEY) || SYNC_URL; } catch (e) {}
+SYNC_URL = SYNC_URL.replace(/\/+$/, '');
 var REDUCED = false;
 try { REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
 
@@ -302,6 +327,20 @@ function ico(n, cls) { return '<svg class="i ' + (cls || '') + '" aria-hidden="t
 function qById(id) { for (var i = 0; i < QUESTIONS.length; i++) if (QUESTIONS[i].id === id) return QUESTIONS[i]; return null; }
 function nn(v, d) { return (typeof v === 'number' && isFinite(v) && v >= 0) ? Math.floor(v) : d; }
 function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+function zeroC() { var c = {}; COUNTERS.forEach(function (k) { c[k] = 0; }); return c; }
+function newId() {
+  try { var b = new Uint8Array(6); crypto.getRandomValues(b); return Array.prototype.map.call(b, function (x) { return (x < 16 ? '0' : '') + x.toString(16); }).join(''); }
+  catch (e) { return (Math.random().toString(16) + '000000000000').slice(2, 14); }
+}
+function parseTeam(s) {                     // accepts "abcd-efgh", a pasted link with #t=CODE, etc.
+  if (typeof s !== 'string') return '';
+  var m = s.match(/[#&?]t(?:eam)?=([^&\s]+)/i); if (m) s = m[1];
+  s = s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (s.length !== 8) return '';
+  for (var i = 0; i < 8; i++) if (CODE_CHARS.indexOf(s.charAt(i)) < 0) return '';
+  return s;
+}
+function fmtTeam(c) { return c ? c.slice(0, 4) + '-' + c.slice(4) : ''; }
 
 /* ---------- randomness: crypto.getRandomValues, unbiased ---------- */
 function randInt(n) {
@@ -317,24 +356,41 @@ function shuffle(arr) {          // Fisher-Yates
   return a;
 }
 
-/* ---------- storage (every access wrapped) ---------- */
+/* ---------- local state (every storage access wrapped) ----------
+   This phone only ever writes its OWN tallies (S.c, S.adj, ...). Other phones' tallies
+   are read-only copies in S.peers. Shared food left = startStock + all adj - all served. */
 var storageOk = true;
 function fresh() {
   return {
-    v: 1, label: '', startStock: CONFIG.defaultStock, stock: CONFIG.defaultStock,
-    c: { customers: 0, follows: 0, already: 0, correct: 0, wrong: 0, retries: 0, skips: 0, hot: 0, full: 0, won: 0, lost: 0, served: 0 },
-    first: null, last: null, bags: { easy: [], hard: [] }, lastId: null, cur: null
+    v: 2, id: newId(), label: '', epoch: 'e0', startStock: CONFIG.defaultStock, adj: 0,
+    c: zeroC(), first: null, last: null, rev: 0, acked: 0,
+    team: '', skipJoin: false, peers: {},
+    bags: { easy: [], hard: [] }, lastId: null, cur: null
   };
+}
+function cleanRec(r) {
+  if (!r || typeof r !== 'object' || !r.c || typeof r.c !== 'object') return null;
+  var o = { l: typeof r.l === 'string' ? r.l.slice(0, 24) : '', c: {}, adj: (typeof r.adj === 'number' && isFinite(r.adj)) ? Math.round(r.adj) : 0,
+    first: typeof r.first === 'number' ? r.first : null, last: typeof r.last === 'number' ? r.last : null, hb: nn(r.hb, 0), rev: nn(r.rev, 0) };
+  COUNTERS.forEach(function (k) { o.c[k] = nn(r.c[k], 0); });
+  return o;
 }
 function normalise(o) {
   var f = fresh();
   if (!o || typeof o !== 'object') return f;
+  if (typeof o.id === 'string' && /^[a-z0-9]{6,24}$/i.test(o.id)) f.id = o.id;
   f.label = typeof o.label === 'string' ? o.label.slice(0, 24) : '';
+  f.epoch = (typeof o.epoch === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(o.epoch)) ? o.epoch : 'e0';
   f.startStock = nn(o.startStock, f.startStock);
-  f.stock = nn(o.stock, f.stock);
   for (var k in f.c) f.c[k] = nn(o.c && o.c[k], 0);
+  if (typeof o.adj === 'number' && isFinite(o.adj)) f.adj = Math.round(o.adj);
+  else if (typeof o.stock === 'number') f.adj = nn(o.stock, f.startStock) - f.startStock + f.c.served;   // migrate v1 saves (their stock already had serves taken off)
   f.first = typeof o.first === 'number' ? o.first : null;
   f.last = typeof o.last === 'number' ? o.last : null;
+  f.rev = nn(o.rev, 0); f.acked = Math.min(nn(o.acked, 0), f.rev);
+  f.team = parseTeam(o.team || '');
+  f.skipJoin = !!o.skipJoin;
+  if (o.peers && typeof o.peers === 'object' && f.team) for (var pid in o.peers) { var pr = /^[a-z0-9]{6,24}$/i.test(pid) && pid !== f.id ? cleanRec(o.peers[pid]) : null; if (pr) f.peers[pid] = pr; }
   f.lastId = typeof o.lastId === 'string' ? o.lastId : null;
   ['easy', 'hard'].forEach(function (d) {
     var src = o.bags && Array.isArray(o.bags[d]) ? o.bags[d] : [];
@@ -359,8 +415,29 @@ function save() {
 }
 var S = load();
 (function probe() { try { localStorage.setItem(KEY + '-probe', '1'); localStorage.removeItem(KEY + '-probe'); } catch (e) { storageOk = false; } })();
+/* a change to anything that is shared with other phones */
+function commit() { S.rev++; save(); if (syncOn()) { net.nextPush = 0; setTimeout(tick, 0); } }
 
-/* ---------- question drawing: two shuffle bags, 70/30 deal odds ---------- */
+/* ---------- shared totals ---------- */
+function allRecs() {
+  var a = [{ id: S.id, me: true, l: S.label, c: S.c, adj: S.adj, first: S.first, last: S.last }];
+  if (syncOn()) for (var k in S.peers) if (k !== S.id) { var p = S.peers[k]; a.push({ id: k, me: false, l: p.l, c: p.c, adj: p.adj, first: p.first, last: p.last }); }
+  return a;
+}
+function totals() {
+  var t = { c: zeroC(), adj: 0, first: null, last: null };
+  allRecs().forEach(function (r) {
+    COUNTERS.forEach(function (k) { t.c[k] += r.c[k]; });
+    t.adj += r.adj;
+    if (r.first && (!t.first || r.first < t.first)) t.first = r.first;
+    if (r.last && (!t.last || r.last > t.last)) t.last = r.last;
+  });
+  return t;
+}
+function remaining() { var t = totals(); return S.startStock + t.adj - t.c.served; }
+function phoneName(r) { return r.l || ('Phone ' + r.id.slice(-4).toUpperCase()); }
+
+/* ---------- question drawing: two shuffle bags, weighted deal odds ---------- */
 function idsFor(d) { return QUESTIONS.filter(function (q) { return q.difficulty === d; }).map(function (q) { return q.id; }); }
 function drawQuestion() {
   var d = randInt(100) < CONFIG.hotDealPercent ? 'easy' : 'hard';
@@ -376,6 +453,167 @@ function drawQuestion() {
   save();
   return id;
 }
+
+/* ============================================================
+   SHARING BETWEEN PHONES (Firebase Realtime Database over REST)
+   - Each phone PUTs its own full record: safe to retry, never double counts.
+   - Every ~2 seconds each phone GETs meta + all phone records and adds them up.
+   - Works offline: changes queue (S.rev vs S.acked) and send when back online.
+   ============================================================ */
+var net = { pollOk: 0, pollFails: 0, pushFails: 0, pushing: false, polling: false, pushStart: 0, pollStart: 0,
+  nextPoll: 0, nextPush: 0, lastPush: 0, pollErr: '', pollMsg: '', pushErr: '', pushMsg: '', seen: {}, pollPromise: null, metaPending: false, metaTimer: null, metaWant: null };
+function syncOn() { return !!(SYNC_URL && S.team); }
+function base() { return SYNC_URL + '/events/' + S.team; }
+function unsent() { return Math.max(0, S.rev - S.acked); }
+function backoff(n) { return Math.min(8000, 1000 * Math.pow(2, Math.max(0, n - 1))); }
+function syncState() {
+  if (!SYNC_URL) return 'off';
+  if (!S.team) return 'join';
+  if (net.pushErr || net.pollErr) return 'error';
+  if (!net.pollOk && !net.pollFails) return 'connecting';
+  if (net.pollFails >= 2 || Date.now() - net.pollOk > 9000) return 'offline';
+  return 'ok';
+}
+function onlineCount() {
+  var n = 1, now = Date.now();
+  for (var k in S.peers) { var sn = net.seen[k]; if (sn && now - sn.t < 45000) n++; }
+  return n;
+}
+async function http(method, url, body, o) {
+  o = o || {};
+  var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  var timer = setTimeout(function () { if (ctl) ctl.abort(); }, o.timeout || 7000);
+  var init = { method: method, cache: 'no-store', mode: 'cors', credentials: 'omit' };
+  if (body != null) { init.body = body; init.headers = { 'content-type': 'application/json' }; }
+  if (o.keepalive) init.keepalive = true;
+  if (ctl) init.signal = ctl.signal;
+  try {
+    var r = await fetch(url, init);
+    if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+    if (r.status === 204) return null;
+    return await r.json();
+  } finally { clearTimeout(timer); }
+}
+function netErr(e, which) {                  // which: 'push' or 'poll' (tracked separately so one cannot hide the other)
+  var st = e && e.status, code = '', msg = '';
+  if (st === 401 || st === 403) { code = 'rules'; msg = 'database rules blocked this phone'; }
+  else if (st === 404) { code = 'url'; msg = 'database not found'; }
+  else if (st === 400 || st === 412) { code = 'bad'; msg = 'database rejected the data'; }
+  net[which + 'Err'] = code; net[which + 'Msg'] = msg;
+}
+function ownRec() {                         // no null fields: the database would drop them anyway
+  var r = { c: S.c, adj: S.adj, rev: S.rev, hb: Date.now(), app: 2 };
+  if (S.label) r.l = S.label;
+  if (S.first) r.first = S.first;
+  if (S.last) r.last = S.last;
+  return r;
+}
+function validMeta(m) { return m && typeof m === 'object' && typeof m.epoch === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(m.epoch) && typeof m.startStock === 'number' && m.startStock >= 0 && m.startStock <= 5000; }
+function metaBody(epoch, stock) { return JSON.stringify({ epoch: epoch, startStock: stock, resetAt: { '.sv': 'timestamp' }, by: (S.label || 'Phone ' + S.id.slice(-4).toUpperCase()).slice(0, 24) }); }
+
+function pushNow() {
+  net.pushing = true; net.pushStart = Date.now();
+  var rev = S.rev, ep = S.epoch, team = S.team;
+  return http('PUT', base() + '/epochs/' + ep + '/devices/' + S.id + '.json?print=silent', JSON.stringify(ownRec()))
+    .then(function () {
+      if (S.epoch === ep && S.team === team) { S.acked = Math.max(S.acked, rev); save(); }
+      net.pushFails = 0; net.lastPush = Date.now(); net.nextPush = 0; net.pushErr = ''; net.pushMsg = '';
+      net.nextPoll = 0;
+    })
+    .catch(function (e) { netErr(e, 'push'); net.pushFails++; net.nextPush = Date.now() + backoff(net.pushFails); })
+    .then(function () { net.pushing = false; liveUpdate(); if (unsent() > 0 && Date.now() >= net.nextPush) setTimeout(tick, 0); });
+}
+function adoptEpoch(ep, quiet) {
+  var had = S.c.customers || S.c.served || S.adj;
+  S.epoch = ep; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0; S.peers = {}; net.seen = {}; save();
+  if (had && !quiet) toast('Tallies were reset on another phone');
+}
+function pollNow(timeout) {
+  if (net.polling && Date.now() - net.pollStart < 15000) return net.pollPromise;
+  net.polling = true; net.pollStart = Date.now();
+  var team = S.team;
+  net.pollPromise = (async function () {
+    try {
+      var to = timeout || 6000, b = base();
+      var meta = await http('GET', b + '/meta.json', null, { timeout: to });
+      if (meta === null) { await http('PUT', b + '/meta.json?print=silent', metaBody(S.epoch, S.startStock), { timeout: to }); meta = { epoch: S.epoch, startStock: S.startStock }; }
+      if (S.team !== team) return;
+      if (validMeta(meta)) {
+        if (meta.epoch !== S.epoch) adoptEpoch(meta.epoch);
+        if (!net.metaPending && meta.startStock !== S.startStock) { S.startStock = meta.startStock; save(); }
+      }
+      var ep = S.epoch;
+      var devs = await http('GET', b + '/epochs/' + ep + '/devices.json', null, { timeout: to });
+      if (S.team !== team || S.epoch !== ep) return;
+      var np = {}, now = Date.now();
+      if (devs && typeof devs === 'object') for (var k in devs) {
+        if (k === S.id) continue;
+        var r = cleanRec(devs[k]); if (!r) continue;
+        np[k] = r;
+        var sn = net.seen[k];
+        if (!sn) net.seen[k] = { hb: r.hb, rev: r.rev, t: (now - r.hb > 60000) ? 0 : now };
+        else if (sn.hb !== r.hb || sn.rev !== r.rev) net.seen[k] = { hb: r.hb, rev: r.rev, t: now };
+      }
+      if (JSON.stringify(np) !== JSON.stringify(S.peers)) { S.peers = np; save(); }
+      var mine = devs && devs[S.id], cloudRev = mine && typeof mine.rev === 'number' ? mine.rev : 0;
+      if (S.acked > 0 && cloudRev < S.acked) S.acked = cloudRev;          // our last write did not land: send it again
+      net.pollOk = Date.now(); net.pollFails = 0; net.pollErr = ''; net.pollMsg = ''; net.nextPoll = Date.now() + CONFIG.pollMs;
+    } catch (e) { netErr(e, 'poll'); net.pollFails++; net.nextPoll = Date.now() + Math.max(CONFIG.pollMs, backoff(net.pollFails)); }
+    finally { net.polling = false; liveUpdate(); }
+  })();
+  return net.pollPromise;
+}
+function tick() {
+  if (!syncOn() || document.visibilityState === 'hidden') return;
+  var now = Date.now();
+  if (net.pushing && now - net.pushStart > 15000) net.pushing = false;
+  if (!net.pushing && now >= net.nextPush && (unsent() > 0 || now - net.lastPush >= CONFIG.heartbeatMs)) pushNow();
+  if (!net.polling && now >= net.nextPoll) pollNow();
+}
+setInterval(tick, 500);
+function wakeSync() { net.nextPoll = 0; net.nextPush = 0; setTimeout(tick, 0); }
+function flushOnHide() {
+  if (!syncOn() || unsent() === 0) return;
+  try { fetch(base() + '/epochs/' + S.epoch + '/devices/' + S.id + '.json?print=silent', { method: 'PUT', body: JSON.stringify(ownRec()), keepalive: true, mode: 'cors', credentials: 'omit', headers: { 'content-type': 'application/json' } }).catch(function () {}); } catch (e) {}
+}
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') wakeSync(); else flushOnHide(); });
+window.addEventListener('online', wakeSync);
+window.addEventListener('pageshow', wakeSync);
+window.addEventListener('focus', wakeSync);
+window.addEventListener('pagehide', flushOnHide);
+
+/* shared settings (meta): total food at start, reset */
+async function writeMeta(epoch, stock) {
+  await http('PUT', base() + '/meta.json?print=silent', metaBody(epoch, stock));
+}
+function changeStart(delta) {
+  var want = Math.max(0, Math.min(5000, (net.metaWant === null ? S.startStock : net.metaWant) + delta));
+  net.metaWant = want; S.startStock = want; save(); liveUpdate();
+  if (!syncOn()) { net.metaWant = null; return; }
+  net.metaPending = true; clearTimeout(net.metaTimer);
+  net.metaTimer = setTimeout(async function () {
+    var w = net.metaWant;
+    try { await writeMeta(S.epoch, w); net.metaPending = false; net.metaWant = null; }
+    catch (e) { net.metaPending = false; net.metaWant = null; toast('No internet: shared total not changed'); net.nextPoll = 0; }
+    liveUpdate(); wakeSync();
+  }, 500);
+}
+async function resetAll() {
+  if (!syncOn()) { localReset(); return; }
+  var ep = 'e' + Date.now().toString(36) + newId().slice(0, 3);
+  try { await writeMeta(ep, S.startStock); adoptEpoch(ep, true); toast('All phones reset'); go('home'); wakeSync(); }
+  catch (e) { toast('No internet: nothing was reset'); }
+}
+function localReset() {
+  var keep = { id: S.id, label: S.label, startStock: S.startStock, team: S.team, skipJoin: S.skipJoin, epoch: S.epoch };
+  S = fresh(); for (var k in keep) S[k] = keep[k]; save(); toast('Reset done'); go('home');
+}
+function joinTeam(code) {
+  S.id = newId(); S.team = code; S.epoch = 'e0'; S.peers = {}; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0;
+  S.startStock = CONFIG.defaultStock; S.skipJoin = true; net.seen = {}; net.pollOk = 0; net.pollFails = 0; net.pollErr = ''; net.pushErr = ''; net.metaPending = false; net.metaWant = null; save(); wakeSync();
+}
+function leaveTeam() { S.team = ''; S.peers = {}; S.skipJoin = true; net.seen = {}; net.pollErr = ''; net.pushErr = ''; save(); }
+function hasTallies() { return !!(S.c.customers || S.c.served || S.adj || S.c.skips); }
 
 /* ---------- wake lock ---------- */
 var wl = null, wakeState = 'off';
@@ -403,28 +641,41 @@ try {
   }
 } catch (e) {}
 
+/* when a new version of the app is installed in the background, reload once the phone is idle on Home */
+var pendingReload = false;
+try {
+  if ('serviceWorker' in navigator) {
+    var hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadController) { pendingReload = true; maybeReload(); } });
+  }
+} catch (e) {}
+function maybeReload() { if (pendingReload && view === 'home' && !S.cur && !modal) { pendingReload = false; try { location.reload(); } catch (e) {} } }
+setInterval(maybeReload, 3000);
+
 /* ---------- QR ---------- */
-function qrSvg(px) {
+function qrSvg(px, text, id) {
   try {
-    var q = qrcode(0, 'M'); q.addData(PROFILE_URL); q.make();
+    var q = qrcode(0, 'M'); q.addData(text || PROFILE_URL); q.make();
     var n = q.getModuleCount(), m = 4, tot = n + 2 * m, cell = Math.max(3, Math.floor(px / tot)), d = '';
     for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) if (q.isDark(r, c)) d += 'M' + (c + m) + ' ' + (r + m) + 'h1v1h-1z';
     var size = cell * tot;
-    return '<svg id="qr" width="' + size + '" height="' + size + '" viewBox="0 0 ' + tot + ' ' + tot + '" shape-rendering="crispEdges" role="img" aria-label="QR code that opens @' + esc(CONFIG.handle) + ' on Instagram"><rect width="' + tot + '" height="' + tot + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+    return '<svg id="' + (id || 'qr') + '" width="' + size + '" height="' + size + '" viewBox="0 0 ' + tot + ' ' + tot + '" shape-rendering="crispEdges" role="img" aria-label="QR code"><rect width="' + tot + '" height="' + tot + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
   } catch (e) {
-    return '<div style="padding:24px;line-height:1.3;font-weight:700">QR code unavailable.<br>Visitor can search for<br>@' + esc(CONFIG.handle) + ' on Instagram.</div>';
+    return '<div style="padding:24px;line-height:1.3;font-weight:700">QR code unavailable.</div>';
   }
 }
+function joinLink() { return location.origin + location.pathname + '#t=' + S.team; }
 
-/* ---------- state + view ---------- */
+/* ---------- view state ---------- */
 var view = S.cur ? 'flow' : 'home';
-var lockUntil = 0, dropTimer = null, modal = null, answerLockUntil = 0, toastTimer = null, freshQ = false;
+var lockUntil = 0, dropTimer = null, modal = null, answerLockUntil = 0, toastTimer = null, freshQ = false, serving = false;
 function lock(ms) { lockUntil = Date.now() + (ms || 250); }
 function go(v) { view = v; lock(); render(); }
 function cur() { return S.cur; }
 function pad3(n) { return String(n).padStart(3, '0'); }
 function fmtTime(ts) { try { return new Date(ts).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }); } catch (e) { return '-'; } }
 function fmtDate(ts) { try { return new Date(ts).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; } }
+function ago(ts) { if (!ts) return 'never'; var s = Math.max(0, Math.round((Date.now() - ts) / 1000)); return s <= 2 ? 'just now' : s < 90 ? s + 's ago' : Math.round(s / 60) + ' min ago'; }
 
 /* ---------- components ---------- */
 function bar(left, mid, right) { return '<header class="bar">' + (left || '<span></span>') + '<div class="mid">' + esc(mid || '') + '</div>' + (right || '<span></span>') + '</header>'; }
@@ -437,31 +688,59 @@ function bigTag(diff) {
   if (diff === 'easy') return '<div class="bigtag hot" id="bigtag"><div class="t1">HOT DEAL</div><div class="t2"><s>$' + CONFIG.rrp + '</s><span class="off">' + esc(CONFIG.discountLabel) + '</span></div></div>';
   return '<div class="bigtag full" id="bigtag"><div class="t1">FULL PRICE</div><div class="t2">RRP $' + CONFIG.rrp + '</div><div class="t3">No discount today</div></div>';
 }
+function syncParts() {
+  var s = syncState(), n = onlineCount(), u = unsent(), cls = 'warn', t = '', sub = '', ch = function (x) { return x + ' change' + (x === 1 ? '' : 's'); };
+  if (s === 'off') { t = 'Not shared: this phone only'; sub = 'Sharing is not set up'; }
+  else if (s === 'join') { t = 'Not shared: tap to join your team'; sub = 'Food count is for this phone only'; }
+  else if (s === 'connecting') { t = 'Connecting to your team...'; sub = u ? ch(u) + ' waiting to send' : 'One moment'; }
+  else if (s === 'ok') { cls = 'ok'; t = 'Shared: ' + n + ' phone' + (n === 1 ? '' : 's') + ' online'; sub = u > 0 ? 'Sending ' + ch(u) + '...' : 'Updated ' + ago(net.pollOk); }
+  else if (s === 'offline') { cls = 'bad'; t = 'Offline: food count may be out of date'; sub = (u ? ch(u) + ' will send when back online. ' : '') + 'Last update ' + ago(net.pollOk); }
+  else { cls = 'bad'; t = 'Sharing problem: ' + (net.pushErr ? net.pushMsg : net.pollMsg); sub = 'Tell the organiser. This phone still works.'; }
+  return { cls: cls, html: '<span class="dot" aria-hidden="true"></span><span><span id="synctxt">' + esc(t) + '</span><small>' + esc(sub) + '</small></span>' };
+}
+function homeStock() {
+  var st = remaining(), cls = st <= 0 ? 'out' : st <= CONFIG.lowStock ? 'low' : '', sh = syncOn() ? ' (all phones)' : '';
+  var lab = st <= 0 ? '<b>Thai food sold out</b><small>Follows can still be collected</small>'
+    : st <= CONFIG.lowStock ? '<b>' + ico('warn') + ' Running low</b><small>Thai food serves left' + sh + '</small>'
+    : '<b>Thai food left</b><small>serves remaining' + sh + '</small>';
+  return '<div class="stock ' + cls + '" id="stockcard" role="status"><div class="n">' + (st <= 0 ? '0' : st) + '</div><div class="l">' + lab + '</div></div>';
+}
+function homeTallies() {
+  var c = totals().c;
+  return '<div class="tally"><b>' + c.customers + '</b><span>Customers</span></div><div class="tally"><b>' + (c.follows + c.already) + '</b><span>Followers</span></div>' +
+    '<div class="tally"><b>' + c.won + '</b><span>Winners</span></div><div class="tally"><b>' + c.lost + '</b><span>No food</span></div>';
+}
 
 /* ---------- screens ---------- */
 function screenHome() {
-  var st = S.stock, c = S.c, cls = st <= 0 ? 'out' : st <= CONFIG.lowStock ? 'low' : '';
-  var stockTxt = st <= 0 ? 'SOLD OUT' : String(st);
-  var lab = st <= 0 ? '<b>Thai food sold out</b><small>Follows can still be collected</small>' : st <= CONFIG.lowStock ? '<b>' + ico('warn') + ' Running low</b><small>Thai food serves left</small>' : '<b>Thai food left</b><small>serves remaining</small>';
+  var sp = syncParts();
   return '' +
   '<div class="brand"><img src="logo.jpg" alt="" width="52" height="52"><div><b>Checkout Challenge</b><span>UNSW E-Commerce Society</span></div></div>' +
   '<main class="main">' +
     '<div class="pills"><span id="wake" class="pill ' + (wakeState === 'on' ? 'good' : 'warn') + '">' + ico('sun') + esc(wakeLabel()) + '</span>' +
     '<span id="offl" class="pill good" style="' + (offlineReady ? '' : 'display:none') + '">' + ico('check') + 'Works offline</span></div>' +
     (storageOk ? '' : '<div class="banner-warn">Storage is blocked in this browser, so tallies will be lost if you close or refresh this page.</div>') +
-    '<div class="stock ' + cls + '" role="status"><div class="n">' + (st <= 0 ? '0' : stockTxt) + '</div><div class="l">' + lab + '</div></div>' +
-    '<div class="tallies">' +
-      '<div class="tally"><b>' + c.customers + '</b><span>Customers</span></div>' +
-      '<div class="tally"><b>' + (c.follows + c.already) + '</b><span>Followers</span></div>' +
-      '<div class="tally"><b>' + c.won + '</b><span>Winners</span></div>' +
-      '<div class="tally"><b>' + c.lost + '</b><span>No food</span></div>' +
-    '</div>' +
+    '<button class="syncrow ' + sp.cls + '" id="syncrow" data-act="sync-open">' + sp.html + '</button>' +
+    homeStock() +
+    '<div class="tallies" id="tallies">' + homeTallies() + '</div>' +
     '<div class="spacer"></div>' +
   '</main>' +
   '<footer class="foot">' +
     '<button class="btn pri big" data-act="next">' + ico('cart') + 'Next customer</button>' +
     '<div class="row"><button class="btn sm" data-act="summary">' + ico('list') + 'Summary</button><button class="btn sm" data-act="help">' + ico('help') + 'How to run it</button></div>' +
   '</footer>';
+}
+
+function screenJoin() {
+  return bar(SYNC_URL && S.team ? '<button class="barbtn" data-act="back-home">' + ico('back') + 'Back</button>' : '', 'Join team') +
+  '<main class="main">' +
+    '<div class="center"><h1 class="title">Join your team</h1><p class="sub">Type the team code so every phone shares one food count.</p></div>' +
+    '<input class="txt" id="code" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="40" placeholder="ABCD-EFGH" aria-label="Team code" style="font-size:30px;text-align:center;letter-spacing:.12em;font-weight:900" value="' + esc(fmtTeam(S.team)) + '">' +
+    '<div class="banner-warn" id="joinerr" style="display:none"></div>' +
+    '<p class="sub center">No code? Scan the join QR on another volunteer\'s phone (Summary, then Show join QR).</p>' +
+    '<div class="spacer"></div>' +
+  '</main>' +
+  '<footer class="foot"><button class="btn pri" data-act="join-go">Join team</button><button class="btn sm" data-act="join-skip">Use on this phone only</button></footer>';
 }
 
 function screenFollow() {
@@ -515,51 +794,60 @@ function screenQuestion() {
   return h;
 }
 
-function screenResult() {
-  var cu = cur(), q = qById(cu.qid), ok = cu.ok, sold = S.stock <= 0;
-  var retry = !ok && cu.attempt <= CONFIG.retries;
-  var banner;
-  if (ok) banner = '<div class="banner ok" id="result">' + ico('check') + '<div><b>ORDER CONFIRMED</b><small>' +
+function resultBanner() {
+  var cu = cur(), ok = cu.ok, sold = remaining() <= 0, retry = !ok && cu.attempt <= CONFIG.retries;
+  if (ok) return '<div class="banner ok" id="result">' + ico('check') + '<div><b>ORDER CONFIRMED</b><small>' +
     (sold ? 'Thai food sold out. Thanks for following!' : 'Order #' + pad3(S.c.customers) + ' | Thai food x1 | Total $0.00') + '</small></div></div>';
-  else if (retry) banner = '<div class="banner bad" id="result">' + ico('x') + '<div><b>NOT QUITE</b><small>You get one more go!</small></div></div>';
-  else banner = '<div class="banner bad" id="result">' + ico('x') + '<div><b>PAYMENT DECLINED</b><small>No food this time. Thanks for following!</small></div></div>';
+  if (retry) return '<div class="banner bad" id="result">' + ico('x') + '<div><b>NOT QUITE</b><small>You get one more go!</small></div></div>';
+  return '<div class="banner bad" id="result">' + ico('x') + '<div><b>PAYMENT DECLINED</b><small>No food this time. Thanks for following!</small></div></div>';
+}
+function resultFoot() {
+  var cu = cur(), ok = cu.ok, sold = remaining() <= 0, retry = !ok && cu.attempt <= CONFIG.retries;
+  if (ok && !sold) return '<button class="btn ok" id="servebtn" data-act="serve">' + ico('check') + 'Serve food (' + remaining() + ' left)</button>';
+  if (retry) return '<button class="btn pri" data-act="retry">Try one more question</button><button class="btn sm" data-act="end-lost">End here, no retry</button>';
+  return '<button class="btn pri" data-act="done">Done</button>';
+}
+function screenResult() {
+  var cu = cur(), q = qById(cu.qid);
   var ans = LETTERS.filter(function (k) { return k === q.answer || k === cu.picked; }).map(function (k) {
     var cls = 'ans', tag = '';
     if (k === q.answer) { cls += ' is-right'; tag = '<span class="tag">' + ico('check') + 'Correct</span>'; }
-    else if (k === cu.picked) { cls += ' is-wrong'; tag = '<span class="tag">' + ico('x') + 'Your pick</span>'; }
-    else cls += ' dim';
+    else { cls += ' is-wrong'; tag = '<span class="tag">' + ico('x') + 'Your pick</span>'; }
     return '<button class="' + cls + '" tabindex="-1"><span class="ltr">' + k + '</span><span class="txt">' + esc(q.options[k]) + '</span>' + tag + '</button>';
   }).join('');
-  var foot;
-  if (ok && !sold) foot = '<button class="btn ok" data-act="serve">' + ico('check') + 'Serve food (' + S.stock + ' left)</button>';
-  else if (retry) foot = '<button class="btn pri" data-act="retry">Try one more question</button><button class="btn sm" data-act="end-lost">End here, no retry</button>';
-  else foot = '<button class="btn pri" data-act="done">Done</button>';
   return bar('<span></span>', 'Step 4 of 4') + steps(4) +
-  '<main class="main">' + banner +
+  '<main class="main"><div id="resbanner">' + resultBanner() + '</div>' +
     '<div class="qtext small">' + esc(q.question) + '</div>' +
     '<div class="answers done">' + ans + '</div>' +
     '<div class="fact"><small>Say this</small><p>' + esc(q.fact) + '</p></div>' +
-  '</main><footer class="foot">' + foot + '</footer>';
+  '</main><footer class="foot" id="resfoot">' + resultFoot() + '</footer>';
 }
 
 function statGrid() {
-  var c = S.c;
+  var c = totals().c;
   function s(n, l, cls) { return '<div class="stat ' + (cls || '') + '"><b>' + n + '</b><span>' + l + '</span></div>'; }
-  return '<div class="stats">' + s(c.customers, 'Customers') + s(S.stock + ' / ' + S.startStock, 'Food left') +
+  return s(c.customers, 'Customers') + s(remaining() + ' / ' + (S.startStock + totals().adj), 'Food left') +
     s(c.follows, 'Follows confirmed') + s(c.already, 'Already following') +
     s(c.correct, 'Answers correct') + s(c.wrong, 'Answers wrong') +
     s(c.won, 'Customers won') + s(c.lost, 'Customers lost') +
     s(c.hot, 'HOT DEAL draws', 'hot') + s(c.full, 'FULL PRICE draws') +
-    s(c.retries, 'Retries given') + s(c.skips, 'Skips') + s(c.served, 'Food served') + '</div>';
+    s(c.retries, 'Retries given') + s(c.skips, 'Skips') + s(c.served, 'Food served');
+}
+function phonesHtml() {
+  var rows = allRecs().map(function (r) {
+    var st = r.me ? (syncState() === 'ok' ? 'online' : syncOn() ? 'this phone, offline' : 'this phone') : (net.seen[r.id] && Date.now() - net.seen[r.id].t < 45000 ? 'online' : 'not seen lately');
+    return '<div class="kv"><span>' + esc(phoneName(r)) + (r.me ? ' (you)' : '') + '<br><small class="muted">' + esc(st) + '</small></span><span class="r">' + r.c.customers + ' customers<br>' + r.c.served + ' served</span></div>';
+  });
+  return rows.join('');
 }
 function summaryText() {
-  var c = S.c, t = S.first || S.last || Date.now();
+  var t = totals(), c = t.c, recs = allRecs(), s = remaining(), ts = t.first || t.last || Date.now();
   var lines = [
     'EcomSoc Checkout Challenge summary',
-    'Phone: ' + (S.label || 'not labelled'),
-    'Date: ' + fmtDate(t),
-    'First customer: ' + (S.first ? fmtTime(S.first) : 'none yet'),
-    'Last customer: ' + (S.last ? fmtTime(S.last) : 'none yet'),
+    'Date: ' + fmtDate(ts),
+    syncOn() ? 'Shared across ' + recs.length + ' phone' + (recs.length === 1 ? '' : 's') + ' (team ' + fmtTeam(S.team) + ')' : 'This phone only (not shared)',
+    'First customer: ' + (t.first ? fmtTime(t.first) : 'none yet'),
+    'Last customer: ' + (t.last ? fmtTime(t.last) : 'none yet'),
     'Customers: ' + c.customers,
     'Follows confirmed: ' + c.follows,
     'Already following: ' + c.already,
@@ -572,25 +860,34 @@ function summaryText() {
     'HOT DEAL draws: ' + c.hot,
     'FULL PRICE draws: ' + c.full,
     'Food served: ' + c.served,
-    'Food remaining: ' + S.stock + ' of ' + S.startStock
+    'Food remaining: ' + Math.max(0, s) + ' of ' + (S.startStock + t.adj) + (s < 0 ? ' (over-served by ' + (-s) + ')' : '')
   ];
+  if (recs.length > 1) { lines.push('By phone:'); recs.forEach(function (r) { lines.push('- ' + phoneName(r) + ': ' + r.c.customers + ' customers, ' + r.c.served + ' served'); }); }
+  if (syncOn() && syncState() !== 'ok') lines.push('Note: this phone was offline, other phones last updated ' + ago(net.pollOk));
   return lines.join('\n');
 }
 function screenSummary() {
+  var sp = syncParts(), sh = syncOn();
   return bar('<button class="barbtn" data-act="back-home">' + ico('back') + 'Home</button>', 'Summary') +
-  '<main class="main">' + statGrid() +
-    '<div class="card"><div class="kv"><span>First customer</span><span>' + (S.first ? fmtTime(S.first) : 'none yet') + '</span></div>' +
-    '<div class="kv"><span>Last customer</span><span>' + (S.last ? fmtTime(S.last) : 'none yet') + '</span></div></div>' +
+  '<main class="main">' +
+    '<button class="syncrow ' + sp.cls + '" id="syncrow" data-act="sync-open">' + sp.html + '</button>' +
+    '<div class="stats" id="stats">' + statGrid() + '</div>' +
+    '<div class="card" id="times"><div class="kv"><span>First customer</span><span id="tfirst">' + (totals().first ? fmtTime(totals().first) : 'none yet') + '</span></div>' +
+    '<div class="kv"><span>Last customer</span><span id="tlast">' + (totals().last ? fmtTime(totals().last) : 'none yet') + '</span></div></div>' +
     '<button class="btn pri" data-act="copy">' + ico('copy') + 'Copy summary</button>' +
-    '<h2 class="sec">Food remaining</h2>' +
-    '<div class="stepper"><button class="btn" data-act="stock-" aria-label="One less">-1</button><div class="v" id="stockv">' + S.stock + '</div><button class="btn" data-act="stock+" aria-label="One more">+1</button></div>' +
-    '<h2 class="sec">Starting stock (used on reset)</h2>' +
+    '<h2 class="sec">Phones</h2><div class="card" id="phones">' + phonesHtml() + '</div>' +
+    '<h2 class="sec">Food remaining' + (sh ? ' (all phones)' : '') + '</h2>' +
+    '<div class="stepper"><button class="btn" data-act="stock-" aria-label="One less">-1</button><div class="v" id="stockv">' + Math.max(0, remaining()) + '</div><button class="btn" data-act="stock+" aria-label="One more">+1</button></div>' +
+    '<h2 class="sec">Total food at start' + (sh ? ' (all phones)' : '') + '</h2>' +
     '<div class="stepper"><button class="btn" data-act="start-" aria-label="Five less">-5</button><div class="v" id="startv">' + S.startStock + '</div><button class="btn" data-act="start+" aria-label="Five more">+5</button></div>' +
-    '<h2 class="sec">Phone label (for adding up)</h2>' +
+    '<h2 class="sec">This phone\'s name</h2>' +
     '<input class="txt" id="label" type="text" maxlength="24" placeholder="e.g. Phone 1" value="' + esc(S.label) + '" autocomplete="off" autocapitalize="words" enterkeyhint="done">' +
-    '<h2 class="sec">Reset</h2>' +
-    '<p class="sub">Clears all tallies and sets food back to the starting stock.</p>' +
+    (SYNC_URL ? '<h2 class="sec">Team code</h2><div class="card"><div class="kv"><span>Code</span><span id="teamcode" style="font-weight:900;letter-spacing:.08em">' + (S.team ? esc(fmtTeam(S.team)) : 'not joined') + '</span></div></div>' +
+      '<div class="row">' + (S.team ? '<button class="btn sm" data-act="share">Show join QR</button>' : '') + '<button class="btn sm" data-act="change-team">' + (S.team ? 'Change team' : 'Join team') + '</button></div>' : '') +
+    '<h2 class="sec">Reset' + (sh ? ' all phones' : '') + '</h2>' +
+    '<p class="sub">' + (sh ? 'Clears the tallies on every phone and puts food back to the total at start. Do this only when all phones are online.' : 'Clears all tallies and puts food back to the total at start.') + '</p>' +
     '<button class="btn hold" data-hold="reset" aria-label="Press and hold for 2 seconds to reset"><span class="fill"></span><span>' + ico('trash') + 'Hold 2 seconds to reset</span></button>' +
+    '<p class="sub center" style="font-size:14px">App version ' + APP_VERSION + '</p>' +
     '<div style="height:8px"></div>' +
   '</main>';
 }
@@ -607,7 +904,8 @@ function screenHelp() {
     '<li><span><b>Wrong answer:</b> they get one more random question. If they miss that too, no food this time. Thank them for following.</span></li>' +
     '<li><span><b>Food runs out:</b> the app says Sold out. Keep collecting follows and thank everyone for coming.</span></li>' +
   '</ol>' +
-  '<div class="tip">Screen locking? Set Auto-Lock to Never in iPhone Settings, or Screen timeout to 10 minutes on Android. Tallies are saved on this phone, so use Summary at the end of the day.</div>' +
+  '<div class="tip"><b>Shared count:</b> the food number is shared by every phone on your team. A green bar on Home means you are connected. If it turns red you are offline: keep going, and your changes send when the signal returns.</div>' +
+  '<div class="tip">Screen locking? Set Auto-Lock to Never in iPhone Settings, or Screen timeout to 10 minutes on Android.</div>' +
   '<div style="height:8px"></div></main>';
 }
 
@@ -618,6 +916,7 @@ function render() {
   var html = '', cu = cur();
   if (view === 'summary') html = screenSummary();
   else if (view === 'help') html = screenHelp();
+  else if (view === 'join') html = screenJoin();
   else if (view === 'flow' && cu) {
     if (cu.step === 'follow') html = screenFollow();
     else if (cu.step === 'reveal') html = screenReveal();
@@ -629,11 +928,35 @@ function render() {
   if (view === 'flow' && cu && cu.step === 'drop') {
     dropTimer = setTimeout(function () { if (cur() && cur().step === 'drop') { cur().step = 'question'; freshQ = true; save(); lock(); render(); } }, REDUCED ? 350 : CONFIG.dropMs);
   }
-  if (view === 'flow' && cu && cu.step === 'result') {
-    if (cu.ok) { buzz(80); confetti(); } else buzz([120, 60, 120]);
-  }
   var main = $('.main'); if (main) main.scrollTop = 0;
 }
+/* update live numbers in place (no full re-render, so nothing jumps and typing is not interrupted) */
+function liveUpdate() {
+  try {
+    var sr = $('#syncrow');
+    if (sr) { var sp = syncParts(); sr.className = 'syncrow ' + sp.cls; sr.innerHTML = sp.html; }
+    if (view === 'home') {
+      var sc = $('#stockcard'); if (sc) sc.outerHTML = homeStock();
+      var tl = $('#tallies'); if (tl) tl.innerHTML = homeTallies();
+    } else if (view === 'summary') {
+      var st = $('#stats'); if (st) st.innerHTML = statGrid();
+      var ph = $('#phones'); if (ph) ph.innerHTML = phonesHtml();
+      var t = totals(), a = $('#tfirst'), b = $('#tlast');
+      if (a) a.textContent = t.first ? fmtTime(t.first) : 'none yet'; if (b) b.textContent = t.last ? fmtTime(t.last) : 'none yet';
+      var sv = $('#stockv'); if (sv) sv.textContent = Math.max(0, remaining());
+      var tv = $('#startv'); if (tv) tv.textContent = S.startStock;
+    } else if (view === 'flow' && cur() && cur().step === 'result' && cur().ok && !serving) {
+      var rb = $('#resbanner'), rf = $('#resfoot');
+      if (rb) { var nb = resultBanner(); if (rb.innerHTML !== nb) rb.innerHTML = nb; }
+      if (rf) {
+        var nf = resultFoot(), sb = $('#servebtn');
+        if (sb && nf.indexOf('id="servebtn"') >= 0) { var label = 'Serve food (' + remaining() + ' left)'; var tn = sb.lastChild; if (tn && tn.nodeType === 3 && tn.nodeValue !== label) tn.nodeValue = label; }
+        else if (rf.innerHTML !== nf) rf.innerHTML = nf;
+      }
+    }
+  } catch (e) {}
+}
+setInterval(function () { if (syncOn() && !modal) liveUpdate(); }, 2000);   // keeps "updated 4s ago" fresh
 
 /* ---------- toast / modal / confetti ---------- */
 function toast(msg) {
@@ -641,7 +964,7 @@ function toast(msg) {
   var t = $('#toast'); if (t) t.remove();
   var d = document.createElement('div'); d.className = 'toast'; d.id = 'toast'; d.setAttribute('role', 'status'); d.textContent = msg;
   document.body.appendChild(d);
-  toastTimer = setTimeout(function () { d.remove(); }, 2200);
+  toastTimer = setTimeout(function () { d.remove(); }, 2600);
 }
 function showModal(html) { modal = true; $('#layer').innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">' + html + '</div></div>'; }
 function closeModal() { modal = null; $('#layer').innerHTML = ''; }
@@ -661,7 +984,7 @@ function newCustomer() {
   S.cur = { step: 'follow', follow: null, qid: null, attempt: 1, counted: false, picked: null, ok: false };
   save(); go('flow');
 }
-function endCustomer() { S.cur = null; save(); go('home'); }
+function endCustomer() { S.cur = null; serving = false; save(); go('home'); }
 function askCancel() {
   showModal('<h3>Cancel this customer?</h3><p class="sub">Nothing will be counted for them.</p>' +
     '<button class="btn" data-act="cancel-yes">Cancel customer</button><button class="btn pri" data-act="modal-close">Keep going</button>');
@@ -669,7 +992,7 @@ function askCancel() {
 function doReveal() { var cu = cur(); cu.qid = drawQuestion(); cu.step = 'drop'; save(); lock(); render(); }
 function doSkip() {
   var cu = cur(); if (!cu || cu.step !== 'question') return;
-  S.c.skips++; cu.qid = drawQuestion(); freshQ = true; save(); lock(); render();
+  S.c.skips++; cu.qid = drawQuestion(); freshQ = true; commit(); lock(); render();
 }
 function doAnswer(k) {
   var cu = cur(); if (!cu || cu.step !== 'question' || Date.now() < answerLockUntil) return;
@@ -684,18 +1007,27 @@ function doAnswer(k) {
   if (q.difficulty === 'easy') c.hot++; else c.full++;
   if (cu.ok) { c.correct++; c.won++; }
   else { c.wrong++; if (cu.attempt > CONFIG.retries) c.lost++; }
-  cu.step = 'result'; save(); lock(); render();
+  cu.step = 'result'; commit(); lock(); render();
+  if (cu.ok) { buzz(80); confetti(); } else buzz([120, 60, 120]);   // only from a real tap, so browsers allow the vibration
 }
 function doRetry() {
-  var cu = cur(); cu.attempt++; S.c.retries++; cu.picked = null; cu.ok = false; cu.qid = drawQuestion(); cu.step = 'drop'; save(); lock(); render();
+  var cu = cur(); cu.attempt++; S.c.retries++; cu.picked = null; cu.ok = false; cu.qid = drawQuestion(); cu.step = 'drop'; commit(); lock(); render();
 }
-function doServe() {
-  var cu = cur(); if (!cu || cu.step !== 'result' || !cu.ok) return;
-  if (S.stock > 0) { S.stock--; S.c.served++; }
-  endCustomer();
+async function doServe() {
+  var cu = cur(); if (!cu || cu.step !== 'result' || !cu.ok || serving) return;
+  serving = true;
+  var btn = $('#servebtn'); if (btn) btn.disabled = true;
+  /* near the end, check the team's latest count first so two phones cannot both hand out the last cups */
+  if (syncOn() && syncState() === 'ok' && remaining() <= CONFIG.lowStock) { try { await pollNow(1500); } catch (e) {} }
+  if (cur() !== cu) { serving = false; return; }
+  if (remaining() > 0) { S.c.served++; commit(); endCustomer(); }
+  else { serving = false; toast('Sold out: another phone just served the last one'); render(); }
 }
-function endLost() { S.c.lost++; endCustomer(); }
-function adj(key, d, min) { S[key] = Math.max(min, Math.min(999, S[key] + d)); save(); var el = $(key === 'stock' ? '#stockv' : '#startv'); if (el) el.textContent = S[key]; }
+function endLost() { S.c.lost++; commit(); endCustomer(); }
+function adjStock(d) {
+  if (d < 0 && remaining() <= 0) return;
+  S.adj += d; commit(); liveUpdate();
+}
 async function copyText(t) {
   try { await navigator.clipboard.writeText(t); return true; } catch (e) {}
   try {
@@ -709,10 +1041,23 @@ async function doCopy() {
   if (await copyText(t)) toast('Summary copied');
   else showModal('<h3>Copy by hand</h3><p class="sub">Select all the text below and copy it.</p><textarea id="manual" readonly>' + esc(t) + '</textarea><button class="btn pri" data-act="modal-close">Close</button>');
 }
-function doReset() {
-  var keepLabel = S.label, st = S.startStock;
-  S = fresh(); S.label = keepLabel; S.startStock = st; S.stock = st; save();
-  toast('Reset done'); go('home');
+function askReset() {
+  if (!syncOn()) { localReset(); return; }
+  var t = totals(), n = allRecs().length;
+  showModal('<h3>Reset ALL phones?</h3><p class="sub">This clears ' + t.c.customers + ' customers and ' + t.c.served + ' food served across ' + n + ' phone' + (n === 1 ? '' : 's') + ', and puts food back to ' + S.startStock + '. Old numbers stay safe in the database.</p>' +
+    '<button class="btn" data-act="reset-yes">Yes, reset all phones</button><button class="btn pri" data-act="modal-close">Keep my numbers</button>');
+}
+function submitJoin() {
+  var code = parseTeam(($('#code') || {}).value || ''), err = $('#joinerr');
+  if (!code) { if (err) { err.style.display = ''; err.textContent = 'That code does not look right. It has 8 letters and numbers, like ABCD-EFGH.'; } return; }
+  doJoin(code);
+}
+function doJoin(code) {
+  var go2 = function () { joinTeam(code); toast('Joined team ' + fmtTeam(code)); closeModal(); view = S.cur ? 'flow' : 'home'; render(); };
+  if (code === S.team) { view = S.cur ? 'flow' : 'home'; render(); return; }
+  if (hasTallies()) showModal('<h3>Join team ' + esc(fmtTeam(code)) + '?</h3><p class="sub">This phone\'s own tallies so far (' + S.c.customers + ' customers, ' + S.c.served + ' served) will be cleared so they are not mixed into the team count.</p>' +
+    '<button class="btn" id="joinyes" data-act="join-yes" data-code="' + esc(code) + '">Join and clear this phone</button><button class="btn pri" data-act="modal-close">Cancel</button>');
+  else go2();
 }
 
 /* ---------- events ---------- */
@@ -724,6 +1069,7 @@ document.addEventListener('click', function (e) {
     case 'next': newCustomer(); break;
     case 'summary': go('summary'); break;
     case 'help': go('help'); break;
+    case 'sync-open': if (SYNC_URL && !S.team) go('join'); else if (view === 'home') go('summary'); else wakeSync(); break;
     case 'back-home':
       if (view === 'flow' && cu && cu.step === 'follow') { S.cur = null; save(); }
       go('home'); break;
@@ -740,14 +1086,27 @@ document.addEventListener('click', function (e) {
     case 'end-lost': endLost(); break;
     case 'done': endCustomer(); break;
     case 'copy': doCopy(); break;
-    case 'stock-': adj('stock', -1, 0); break;
-    case 'stock+': adj('stock', 1, 0); break;
-    case 'start-': adj('startStock', -5, 0); break;
-    case 'start+': adj('startStock', 5, 0); break;
+    case 'stock-': adjStock(-1); break;
+    case 'stock+': adjStock(1); break;
+    case 'start-': changeStart(-5); break;
+    case 'start+': changeStart(5); break;
+    case 'join-go': submitJoin(); break;
+    case 'join-skip': S.skipJoin = true; save(); go('home'); break;
+    case 'join-yes': { var code = b.dataset.code; joinTeam(code); toast('Joined team ' + fmtTeam(code)); closeModal(); view = S.cur ? 'flow' : 'home'; render(); break; }
+    case 'change-team': go('join'); break;
+    case 'share':
+      showModal('<h3>Join this team</h3><div class="center" style="line-height:0">' + qrSvg(Math.min(window.innerWidth - 80, 260), joinLink(), 'qrjoin') + '</div><p class="sub center">Other volunteers scan this with their camera, or type the code<br><b style="font-size:26px;letter-spacing:.08em">' + esc(fmtTeam(S.team)) + '</b></p><button class="btn pri" data-act="modal-close">Close</button>'); break;
+    case 'reset-yes': closeModal(); resetAll(); break;
   }
 });
-document.addEventListener('input', function (e) { if (e.target.id === 'label') { S.label = e.target.value.slice(0, 24); save(); } });
-document.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.id === 'label') e.target.blur(); });
+document.addEventListener('input', function (e) {
+  if (e.target.id === 'label') { S.label = e.target.value.slice(0, 24); clearTimeout(net.labelTimer); net.labelTimer = setTimeout(commit, 700); }
+  if (e.target.id === 'code') { var er = $('#joinerr'); if (er) er.style.display = 'none'; }
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && e.target.id === 'label') e.target.blur();
+  if (e.key === 'Enter' && e.target.id === 'code') submitJoin();
+});
 document.addEventListener('contextmenu', function (e) { if (e.target.closest('[data-hold]')) e.preventDefault(); });
 
 /* hold to reset */
@@ -756,7 +1115,7 @@ function holdStop() { clearTimeout(holdTimer); holdTimer = null; if (holdBtn) { 
 document.addEventListener('pointerdown', function (e) {
   var b = e.target.closest('[data-hold]'); if (!b) return;
   holdStop(); holdBtn = b; void b.offsetWidth; b.classList.add('go');
-  holdTimer = setTimeout(function () { holdStop(); doReset(); }, 2000);
+  holdTimer = setTimeout(function () { holdStop(); askReset(); }, 2000);
 });
 ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) { document.addEventListener(ev, function (e) { if (holdBtn && (ev !== 'pointerleave' || e.target === holdBtn)) holdStop(); }, true); });
 
@@ -766,17 +1125,29 @@ window.addEventListener('popstate', function () {
   try { history.pushState({ g: 2 }, ''); } catch (e) {}
   var cu = cur();
   if (modal) closeModal();
-  else if (view === 'summary' || view === 'help') go('home');
+  else if (view === 'summary' || view === 'help' || (view === 'join' && (S.team || S.skipJoin))) go('home');
   else if (view === 'flow' && cu && cu.step === 'follow') { S.cur = null; save(); go('home'); }
   else if (view === 'flow' && cu && !cu.counted && cu.step !== 'drop') askCancel();
 });
 var rz = null;
 window.addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { var cu = cur(); if (view === 'flow' && cu && cu.step === 'follow') render(); }, 200); });
 
-/* test and debugging hooks (read-only use) */
-window.CC = { QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: doReset };
+/* test and debugging hooks */
+window.CC = { QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
+  commit: commit, remaining: remaining, totals: totals, syncState: syncState, net: net, tick: tick, pollNow: pollNow, syncOn: syncOn, unsent: unsent };
 
+/* join link: https://.../#t=ABCD-EFGH (the code never goes to the web host, it stays after the #) */
+(function handleHash() {
+  var code = parseTeam(location.hash || '');
+  if (location.hash) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} }
+  if (code && SYNC_URL && code !== S.team) {
+    if (!hasTallies()) { joinTeam(code); }
+    else setTimeout(function () { doJoin(code); }, 300);
+  }
+})();
+if (SYNC_URL && !S.team && !S.skipJoin && !S.cur) view = 'join';
 render();
+wakeSync();
 })();
 </script>
 </body>

@@ -2,7 +2,13 @@
   "name": "checkout-challenge-tests",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node run.mjs" },
+  "scripts": {
+    "test": "node run.mjs && node sync.mjs && node rules-check.mjs",
+    "test:solo": "node run.mjs",
+    "test:sync": "node sync.mjs",
+    "test:rules": "node rules-check.mjs",
+    "test:live": "node rules-check.mjs --live && node sync.mjs --live"
+  },
   "devDependencies": {
     "jsqr": "^1.4.0",
     "playwright": "^1.50.0",

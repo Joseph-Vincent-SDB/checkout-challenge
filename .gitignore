@@ -3,3 +3,6 @@ tests/node_modules/
 tests/last-run.json
 .DS_Store
 tests/screenshots/
+tests/last-sync-run.json
+tests/last-rules-run.json
+tests/sheet.mjs

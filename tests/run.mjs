@@ -48,6 +48,7 @@ async function newPage(opts = {}, init) {
 }
 const wait = ms => new Promise(r => setTimeout(r, ms));
 async function tap(page, sel) { await page.waitForSelector(sel, { state: 'visible' }); await wait(300); await page.click(sel); }
+const rem = page => page.evaluate(() => window.CC.remaining());
 const getState = page => page.evaluate(() => JSON.parse(JSON.stringify(window.CC.state())));
 async function seed(page, mut) {
   const s = await getState(page);
@@ -128,7 +129,7 @@ for (const name of DEVICES) {
   await tap(page, '[data-act=serve]'); await page.waitForSelector('[data-act=next]');
   check(`[${name}] No confetti left over on Home after Serve`, !(await page.$('.confetti')));
   const st = await getState(page);
-  check(`[${name}] Full flow ends on Home with 1 customer, 79 food`, st.c.customers === 1 && st.stock === 79 && st.c.served === 1, JSON.stringify(st.c));
+  check(`[${name}] Full flow ends on Home with 1 customer, 79 food`, st.c.customers === 1 && (await rem(page)) === 79 && st.c.served === 1, JSON.stringify(st.c));
   check(`[${name}] No JS errors`, page.errors.length === 0, page.errors.join(' | '));
   check(`[${name}] No external network requests`, page.external.length === 0, page.external.join(' '));
   await page.context().close();
@@ -262,7 +263,7 @@ for (const name of DEVICES) {
   await tap(page, '[data-act=next]'); await tap(page, '[data-act=back-home]'); await page.waitForSelector('[data-act=next]');
   const s = await getState(page);
   check('Cancelled customers are not counted (only skip is)', s.c.customers === 4 && s.c.follows === 3 && s.c.already === 1, JSON.stringify(s.c));
-  check('Counters add up', s.c.correct === 3 && s.c.wrong === 3 && s.c.retries === 2 && s.c.skips === 1 && s.c.won === 3 && s.c.lost === 1 && s.c.served === 3 && s.stock === 77 && s.c.hot + s.c.full === s.c.correct + s.c.wrong + 0, JSON.stringify(s.c) + ' stock=' + s.stock);
+  check('Counters add up', s.c.correct === 3 && s.c.wrong === 3 && s.c.retries === 2 && s.c.skips === 1 && s.c.won === 3 && s.c.lost === 1 && s.c.served === 3 && (await rem(page)) === 77 && s.c.hot + s.c.full === s.c.correct + s.c.wrong + 0, JSON.stringify(s.c) + ' stock=' + (await rem(page)));
   check('First and last customer times recorded', !!s.first && !!s.last && s.last >= s.first);
   // Persistence across reload (mid-customer too)
   await startCustomer(page); const mid = (await getState(page)).cur.qid; await page.reload(); await page.waitForSelector('.ans[data-act=answer]');
@@ -270,7 +271,7 @@ for (const name of DEVICES) {
   check('Refresh mid-question resumes the same question', mid === afterReload);
   await tap(page, '[data-act=cancel]'); await tap(page, '[data-act=cancel-yes]'); await page.waitForSelector('[data-act=next]');
   const s2 = await getState(page);
-  check('Tallies and stock survive refresh', s2.stock === 77 && s2.c.customers === 4);
+  check('Tallies and stock survive refresh', (await rem(page)) === 77 && s2.c.customers === 4);
 
   // Summary + copy
   await tap(page, '[data-act=summary]'); await page.waitForSelector('[data-act=copy]');
@@ -280,7 +281,7 @@ for (const name of DEVICES) {
   check('Copy summary puts plain text on the clipboard', /Customers: 4/.test(clip) && /Food remaining: 77 of 80/.test(clip) && !clip.includes('\u2014'), clip.split('\n').slice(0, 3).join(' / '));
   // stock adjust
   await tap(page, '[data-act="stock+"]'); await tap(page, '[data-act="stock-"]'); await tap(page, '[data-act="stock-"]');
-  check('Manual stock adjust works', (await getState(page)).stock === 76);
+  check('Manual stock adjust works', (await rem(page)) === 76);
   // short hold does not reset
   const hb = await page.$('[data-hold]'); const bb = await hb.boundingBox();
   await hb.scrollIntoViewIfNeeded();
@@ -289,21 +290,21 @@ for (const name of DEVICES) {
   check('Short press on Reset does nothing', (await getState(page)).c.customers === 4);
   await page.mouse.move(bb2.x + bb2.width / 2, bb2.y + bb2.height / 2); await page.mouse.down(); await wait(2300); await page.mouse.up(); await wait(300);
   const s3 = await getState(page);
-  check('Holding Reset for 2 seconds clears tallies and restores stock', s3.c.customers === 0 && s3.stock === 80 && s3.c.served === 0, JSON.stringify(s3.c) + ' stock=' + s3.stock);
+  check('Holding Reset for 2 seconds clears tallies and restores stock', s3.c.customers === 0 && (await rem(page)) === 80 && s3.c.served === 0, JSON.stringify(s3.c) + ' stock=' + (await rem(page)));
 
   // Sold out behaviour
-  await seed(page, st => { st.stock = 1; });
+  await seed(page, st => { st.adj = 1 - st.startStock; });
   await startCustomer(page); await answer(page, true); await page.waitForSelector('#result');
   check('Last serve button shows 1 left', /Serve food \(1 left\)/.test(await page.innerText('.foot')));
   await tap(page, '[data-act=serve]'); await page.waitForSelector('[data-act=next]');
-  check('Sold out state shown on Home', /SOLD OUT|sold out/i.test(await page.innerText('.stock')) && (await getState(page)).stock === 0);
+  check('Sold out state shown on Home', /SOLD OUT|sold out/i.test(await page.innerText('.stock')) && (await rem(page)) === 0);
   await page.screenshot({ path: path.join(SHOTS, '11-home-soldout.png') });
   await startCustomer(page); await answer(page, true); await page.waitForSelector('#result');
   const so = await page.innerText('.main');
   check('After sell-out, success says Thai food sold out and no Serve button', /sold out/i.test(so) && !(await page.$('[data-act=serve]')));
   await page.screenshot({ path: path.join(SHOTS, '12-result-soldout.png') });
   await tap(page, '[data-act=done]'); await page.waitForSelector('[data-act=next]');
-  check('Stock never goes below 0', (await getState(page)).stock === 0);
+  check('Stock never goes below 0', (await rem(page)) === 0);
   check('Tap count Home to Serve food is 4 or fewer (excluding answer)', true, 'Next customer, Follow confirmed, Reveal deal, Serve food = 4');
   check('No JS errors during logic run', page.errors.length === 0, page.errors.join(' | '));
   await page.context().close();
@@ -317,7 +318,7 @@ for (const name of DEVICES) {
   await page.goto(BASE); await page.waitForSelector('[data-act=next]');
   check('Storage blocked: app loads and shows a warning', /Storage is blocked/.test(await page.innerText('body')));
   await startCustomer(page); await answer(page, true); await page.waitForSelector('#result'); await tap(page, '[data-act=serve]'); await page.waitForSelector('[data-act=next]');
-  check('Storage blocked: full flow still works', (await getState(page)).stock === 79 && page.errors.length === 0, page.errors.join(' | '));
+  check('Storage blocked: full flow still works', (await rem(page)) === 79 && page.errors.length === 0, page.errors.join(' | '));
   await page.context().close();
 }
 {
@@ -448,7 +449,7 @@ for (const name of DEVICES) {
   await seed(page, s => { s.cur = { step: 'question', follow: 'new', qid: 'H07', attempt: 2, counted: true, picked: null, ok: false }; }); await wait(500);
   await page.click('.ans[data-k=B]'); await page.waitForSelector('#result'); await wait(300); await shot('15-result-final-wrong');
   await tap(page, '[data-act=done]'); await page.waitForSelector('[data-act=next]');
-  await seed(page, s => { s.stock = 12; }); await wait(300); await shot('16-home-low-stock');
+  await seed(page, s => { s.adj = 12 - s.startStock; }); await wait(300); await shot('16-home-low-stock');
   await page.context().close();
   // contact sheet
   const files = fs.readdirSync(SHOTS).filter(f => /^\d.*\.png$/.test(f)).sort();

@@ -1,0 +1,110 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "events": {
+      "$team": {
+        ".read": "$team.length == 8",
+        "meta": {
+          ".write": "$team.length == 8",
+          ".validate": "newData.hasChildren(['epoch', 'startStock'])",
+          "epoch": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 24"
+          },
+          "startStock": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5000"
+          },
+          "resetAt": {
+            ".validate": "newData.isNumber()"
+          },
+          "by": {
+            ".validate": "newData.isString() && newData.val().length <= 24"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "epochs": {
+          "$epoch": {
+            ".validate": "$epoch.length >= 1 && $epoch.length <= 24",
+            "devices": {
+              "$id": {
+                ".write": "$team.length == 8 && $id.length >= 6 && $id.length <= 24",
+                ".validate": "newData.hasChildren(['c', 'rev', 'hb'])",
+                "l": {
+                  ".validate": "newData.isString() && newData.val().length <= 24"
+                },
+                "c": {
+                  ".validate": "newData.hasChildren(['customers', 'served'])",
+                  "customers": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "follows": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "already": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "correct": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "wrong": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "retries": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "skips": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "hot": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "full": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "won": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "lost": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "served": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "$other": {
+                    ".validate": false
+                  }
+                },
+                "adj": {
+                  ".validate": "newData.isNumber() && newData.val() >= -5000 && newData.val() <= 5000"
+                },
+                "first": {
+                  ".validate": "newData.isNumber()"
+                },
+                "last": {
+                  ".validate": "newData.isNumber()"
+                },
+                "hb": {
+                  ".validate": "newData.isNumber()"
+                },
+                "rev": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0 && (!data.exists() || newData.val() >= data.val())"
+                },
+                "app": {
+                  ".validate": "newData.isNumber()"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              }
+            }
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}
