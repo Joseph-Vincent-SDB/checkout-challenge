@@ -281,7 +281,7 @@ if (mock) {   // fault injection needs the mock database
   await tap(S2, '#syncrow'); check('Tapping the bar opens the Join screen again', await S2.isVisible('#code'));
   // phone with existing tallies opening a join link
   const T = await phone('', { join: false }); await tap(T, '[data-act=join-skip]'); await fakeServe(T, 2);
-  await T.goto(BASE + '#t=' + TEAM); await T.reload(); await T.waitForSelector('#app *');
+  await T.goto('about:blank'); await T.goto(BASE + '#t=' + TEAM); await T.waitForSelector('#app *');   // a fresh page load with the join link
   check('Opening a join link on a phone that already has tallies asks before clearing them', await until(async () => /clear this phone/.test(await T.innerText('.sheet').catch(() => '')), 4000));
   await tap(T, '[data-act=join-yes]');
   check('After confirming, the phone is on the team with a clean slate', await until(async () => (await own(T)).served === 0 && /Shared/.test(await syncText(T)), 8000));
@@ -289,6 +289,9 @@ if (mock) {   // fault injection needs the mock database
   const H = await phone('', { join: false }); await tap(H, '[data-act=join-skip]'); await wait(300);
   await H.evaluate(code => { location.hash = '#t=' + code; }, TEAM);
   check('A join link opened while the app is already open (only the # changes) still joins', await until(async () => (await H.evaluate(() => CC.state().team)) === TEAM && /Shared/.test(await syncText(H)), 8000) && new URL(H.url()).hash === '', (await syncText(H)).replace(/\n/g, ' '));
+  const H2 = await phone('', { join: false }); await tap(H2, '[data-act=join-skip]'); await fakeServe(H2, 1); await wait(300);
+  await H2.evaluate(code => { location.hash = '#t=' + code; }, TEAM);
+  check('A join link arriving while the app is open on a phone WITH tallies also asks first', await until(async () => /clear this phone/.test(await H2.innerText('.sheet').catch(() => '')), 4000));
   // Show join QR
   await tap(T, '[data-act=summary]'); await tap(T, '[data-act=share]');
   check('Show join QR displays a QR code and the team code', !!(await T.$('#qrjoin')) && (await T.innerText('.sheet')).includes(fmtCode(TEAM)));

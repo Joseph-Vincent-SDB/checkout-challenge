@@ -123,11 +123,13 @@ The tests use Playwright with Chromium and mobile emulation. They start their ow
 cd tests
 npm install
 npx playwright install chromium     # skip if you already have a Chromium: set CHROME_EXE=/path/to/chrome
-npm test                            # all three suites
+npm test                            # solo, multi-phone, rules and update suites
 ```
 
 - `npm run test:solo` (`run.mjs`, 72 checks): one phone at iPhone SE (375 x 667 and the old 320 x 568), iPhone 15 and Pixel 7 sizes. Full flow, correct, wrong, retry, skip, cancel, serve, sold out, Summary, copy and reset. No-repeat shuffle over 2,000 draws. Every question and result screen fits without scrolling or horizontal overflow (including "Bulk Nationwide Parcel Logistics"). 48 px tap targets with 8 px gaps. Answers hidden and identical before a tap. WCAG AA contrast. QR decodes (also dimmed). Offline reload. Blocked storage. No sound. Wake lock and vibrate with and without browser support. Screenshots go to `tests/screenshots/`.
 - `npm run test:sync` (`sync.mjs`, 74 checks): up to 6 phones sharing one team. Serves on one phone appear on the others, exact totals after interleaved serves, offline phones catching up with nothing lost or doubled, answers lost in transit, server 500s, a server that never answers, dropped connections, slow servers, out-of-order writes, shared total and manual adjust, reset (including a phone that was offline during it), the last portions, joining by link and by code, rules rejections, junk records, migration of saves from the earlier version, gentle network traffic, hidden phones not polling, and layout and contrast of the new screens.
+- `npm run test:update` (`sw-update.mjs`, 8 checks): a new version installs from fresh files even when the host allows 10 minute caching, never reloads in the middle of a customer, reloads itself once idle on Home, and opens offline.
+- `npm run test:soak` (`soak.mjs`): the long one. Several phones run random customers for minutes against a deployed site and a real database, with random offline spells, refreshes, app-switching and settings taps. At the end every phone and the database must agree exactly. Example: `BASE_URL=https://<owner>.github.io/<repo>/ SYNC_URL=<db url> DURATION_S=240 PHONES=5 npm run test:soak`. It uses a throwaway team code and deletes its data.
 - `npm run test:rules` (`rules-check.mjs`, 36 checks): probes the security rules directly.
 - `npm run test:live`: runs the rules probe and the multi-phone tests against **your real database**: `SYNC_URL=https://<db>.firebasedatabase.app npm run test:live`. It uses a random team code and deletes its own data.
 
