@@ -35,6 +35,7 @@ Test engines: Chromium (Chrome and Android) and WebKit (the engine inside every 
 | Rotated to landscape | No sideways scroll. Every button can be scrolled into reach. | `scenarios.mjs` (2) |
 | Phone clock wrong by hours | Totals unaffected. Online list correct. | `scenarios.mjs` (6) |
 | Old phones without vibration or wake lock | Fail silently. Red or amber hints only. | `run.mjs` |
+| A link tapped inside Instagram or another chat app (built-in browser) | Detected. A full-screen guide says "Open this in Safari/Chrome", with steps, the team code and a Copy link button. Does not join from inside it. A warning bar stays on Home if the volunteer continues anyway. | `scenarios.mjs` (9b) |
 | Safari engine | All suites pass on WebKit. | `BROWSER=webkit` runs |
 | New app version released | Installs from fresh files, reloads itself only when idle on Home or Join. Never mid-customer. | `sw-update.mjs` |
 | Random chaos (clicks, reloads, rotation, offline blips, errors) | No errors. Numbers stay valid. Phones agree afterwards. | `scenarios.mjs` (10, monkey) |
@@ -66,7 +67,7 @@ Soaks against the real database, all passing: 5 phones for 4 minutes (144 custom
 4. **Reset needs a connection** and affects every phone. It cannot be undone from the app (the old numbers stay in the database).
 5. **iPhone Home Screen app has separate storage** from Safari. Type the team code once in the installed app.
 6. **Safari deletes website storage after 7 days without use** (browser tabs only, not the installed app). Open the app within a week of the event.
-7. **Do not open the join link inside Instagram, WhatsApp or Messenger.** Their built-in browsers have separate storage and no offline support. Open it in Safari or Chrome.
+7. **Links tapped inside Instagram, Facebook, Messenger, TikTok or Snapchat open in that app's own built-in browser**, which has separate storage and no offline support. The app recognises this, **stops, and tells the volunteer how to open the link in Safari or Chrome** (with a Copy link button), and does not join the team from inside the wrong browser. They can still choose to continue, and a warning stays on Home. Tested with Instagram, Facebook, Messenger, TikTok and Snapchat browser identifiers on iPhone and Android. The real Instagram browser itself could not be tested here.
 8. **Anyone with the team code can see and change the food count.** Share it with volunteers only.
 9. The free Firebase plan allows 100 connections and 10 GB of downloads a month. Five phones use well under 1% of that.
 

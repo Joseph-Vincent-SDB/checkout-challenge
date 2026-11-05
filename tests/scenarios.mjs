@@ -23,6 +23,7 @@ const BASE = `http://127.0.0.1:${web.address().port}/`;
 const mock = await startMock();
 const browser = await ENGINE.launch(IS_CHROMIUM && process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
 const D = { ...devices['iPhone SE (3rd gen)'] }; delete D.defaultBrowserType; D.viewport = { width: 375, height: 667 };
+const SECTIONS = (process.env.SECTIONS || '').split(',').filter(Boolean); const want = n => !SECTIONS.length || SECTIONS.includes(n);
 const results = [];
 const check = (n, ok, d = '') => { results.push({ n, ok: !!ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${n}${d ? '  [' + d + ']' : ''}`); };
 const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -35,8 +36,9 @@ async function phone(label, o = {}) {
   if (!o.noOverride) await ctx.addInitScript(([k, u]) => { try { localStorage.setItem(k, u); } catch (e) {} }, ['ecomsoc-sync-url', mock.url]);
   if (o.offsetMs) await ctx.addInitScript(off => { const R = Date; class D2 extends R { constructor(...a) { if (a.length === 0) super(R.now() + off); else super(...a); } static now() { return R.now() + off; } } window.Date = D2; }, o.offsetMs);
   if (o.init) await ctx.addInitScript(o.init, o.initArg);
+  await ctx.addInitScript(() => { window.__rej = []; addEventListener('unhandledrejection', e => { try { window.__rej.push('rejection: ' + String(e.reason && (e.reason.stack || e.reason.message || e.reason))); } catch (x) {} }); });
   const page = await ctx.newPage(); page.ctx = ctx; page.errors = [];
-  page.on('pageerror', e => page.errors.push('pageerror: ' + e.message));
+  page.on('pageerror', e => page.errors.push('pageerror: ' + e.message + ' @ ' + String(e.stack || '').split('\n').slice(0, 4).join(' | ')));
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|net::ERR|Access-Control|Failed to fetch|Load failed|NetworkError|JSON|Unexpected token/.test(m.text())) page.errors.push('console: ' + m.text()); });
   await page.goto(BASE + (o.join === false ? '' : '#t=' + (o.team || TEAM))); await page.waitForSelector('#app *');
   if (label) await page.evaluate(l => { CC.state().label = l; CC.commit(); }, label);
@@ -55,7 +57,7 @@ const noErr = ps => ps.every(p => p.errors.length === 0);
 const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 
 /* ---------- 1. Back button / edge swipe ---------- */
-{
+if (want('1')) {
   const p = await phone('A'); await until(async () => (await st(p)) === 'ok');
   const onApp = () => p.url().startsWith(BASE);
   await tap(p, '[data-act=summary]'); await p.waitForSelector('#stats'); await p.goBack(); await wait(400);
@@ -77,7 +79,7 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 }
 
 /* ---------- 2. Rotation to landscape ---------- */
-{
+if (want('2')) {
   const p = await phone('A'); await until(async () => (await st(p)) === 'ok');
   await p.setViewportSize({ width: 667, height: 375 }); await wait(300);
   const report = async name => p.evaluate(async name => {
@@ -103,7 +105,7 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 }
 
 /* ---------- 3. corrupted or odd saved data ---------- */
-{
+if (want('3')) {
   const key = 'ecomsoc-checkout-challenge-v1';
   const variants = {
     'broken JSON': '{"v":2,"c":',
@@ -134,7 +136,7 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 }
 
 /* ---------- 4. reset on another phone in the middle of a customer ---------- */
-{
+if (want('4')) {
   const A = await phone('A'), B = await phone('B'); await until(async () => (await st(A)) === 'ok' && (await st(B)) === 'ok');
   await fakeServe(B, 5); await until(async () => (await rem(A)) === 75);
   await toQuestion(A);
@@ -146,7 +148,7 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 }
 
 /* ---------- 5. a phone's storage is wiped in the middle of the event ---------- */
-{
+if (want('5')) {
   const A = await phone('A'), B = await phone('B'); await until(async () => (await st(A)) === 'ok' && (await st(B)) === 'ok');
   await fakeServe(A, 3); await until(async () => (await rem(B)) === 77);
   await A.evaluate(() => { localStorage.removeItem('ecomsoc-checkout-challenge-v1'); }); await A.goto('about:blank'); await A.goto(BASE); await A.waitForSelector('#app *');
@@ -160,7 +162,7 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 }
 
 /* ---------- 6. phones with the wrong clock ---------- */
-{
+if (want('6')) {
   const A = await phone('Ahead 3h', { offsetMs: 3 * 3600e3 }), B = await phone('Behind 3h', { offsetMs: -3 * 3600e3 }), C = await phone('On time');
   await until(async () => (await Promise.all([A, B, C].map(st))).every(s => s === 'ok'), 12000);
   await fakeServe(A, 2); await fakeServe(B, 3); await fakeServe(C, 4);
@@ -170,7 +172,7 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 }
 
 /* ---------- 7. the network answers, but not with the database ---------- */
-{
+if (want('7')) {
   const A = await phone('A'), B = await phone('B'); await until(async () => (await st(A)) === 'ok' && (await st(B)) === 'ok');
   mock.ctl.garbage = true; await fakeServe(A, 2);
   await until(async () => (await st(A)) === 'offline', 14000);
@@ -186,7 +188,7 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 }
 
 /* ---------- 8. Serve while the network hangs ---------- */
-{
+if (want('8')) {
   const A = await phone('A'), B = await phone('B'); await until(async () => (await st(A)) === 'ok' && (await st(B)) === 'ok');
   await A.evaluate(() => { CC.state().adj = -70; CC.commit(); }); await until(async () => (await rem(B)) === 10);
   await A.evaluate(() => { const S = CC.state(); S.cur = { step: 'result', follow: 'new', qid: 'E01', attempt: 1, counted: true, picked: 'A', ok: true }; CC.commit(); }); await A.reload(); await A.waitForSelector('#servebtn');
@@ -200,7 +202,7 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
 }
 
 /* ---------- 9. unusual phone names ---------- */
-{
+if (want('9')) {
   const names = ['小小小小小小小小小小小小', '🍜🍜🍜🍜🍜🍜🍜🍜🍜🍜🍜🍜', '<img src=x onerror=_x()>', 'A'.repeat(24), 'Zoë & Ahmed "Stall"'];
   const A = await phone('A', { init: () => { window._xss = 0; window._x = () => { window._xss++; }; } }), B = await phone('B', { init: () => { window._xss = 0; window._x = () => { window._xss++; }; } });
   await until(async () => (await st(A)) === 'ok');
@@ -217,8 +219,86 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
   check('No JS errors', noErr([A, B]), errs([A, B])); await reset();
 }
 
+/* ---------- 9b. links opened inside Instagram and other in-app browsers ---------- */
+if (want('9b')) {
+  const UA = {
+    igIos: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21F90 Instagram 340.0.0.19.108 (iPhone14,5; iOS 17_5; en_AU; en-AU; scale=3.00; 1170x2532; 640110043)',
+    igAndroid: 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP2A.240705.005; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.122 Mobile Safari/537.36 Instagram 340.0.0.28.106 Android (34/14; 420dpi; 1080x2400; Google/google; Pixel 8; shiba; shiba; en_AU; 640110043)',
+    fbIos: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21F90 [FBAN/FBIOS;FBAV/460.0.0.45.113;FBBV/580123456;FBDV/iPhone14,5;FBMD/iPhone;FBSN/iOS;FBSV/17.5;FBSS/3;FBID/phone;FBLC/en_US;FBOP/5]',
+    messenger: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21F90 [FBAN/MessengerForiOS;FBAV/460.0.0.45.113;FBBV/580123456;FBDV/iPhone14,5]',
+    fbAndroid: 'Mozilla/5.0 (Linux; Android 14; SM-S918B Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.122 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/460.0.0.45.113;]',
+    tiktok: 'Mozilla/5.0 (Linux; Android 14; SM-S918B Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.122 Mobile Safari/537.36 trill_340000 BytedanceWebview/d8a21c6',
+    snapchat: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Snapchat/12.90.0.37 (like Safari/8617.1.17.10.9, panda)',
+    safariIos: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    chromeAndroid: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+    chromeIos: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.153 Mobile/15E148 Safari/604.1',
+    firefoxAndroid: 'Mozilla/5.0 (Android 14; Mobile; rv:127.0) Gecko/127.0 Firefox/127.0',
+    samsung: 'Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36'
+  };
+  const probe = await phone('', { join: false });
+  const det = await probe.evaluate(u => Object.fromEntries(Object.entries(u).map(([k, v]) => [k, window.CC.detectIab(v)])), UA);
+  const want = { igIos: ['Instagram', 'ios'], igAndroid: ['Instagram', 'android'], fbIos: ['Facebook or Messenger', 'ios'], messenger: ['Facebook or Messenger', 'ios'], fbAndroid: ['Facebook or Messenger', 'android'], tiktok: ['TikTok', 'android'], snapchat: ['Snapchat', 'ios'] };
+  const okDet = Object.entries(want).every(([k, [n, o]]) => det[k] && det[k].name === n && det[k].os === o);
+  const okNone = ['safariIos', 'chromeAndroid', 'chromeIos', 'firefoxAndroid', 'samsung'].every(k => det[k] === null);
+  check('In-app browsers are recognised (Instagram, Facebook, Messenger, TikTok, Snapchat on iPhone and Android)', okDet, JSON.stringify(det));
+  check('Normal browsers are never mistaken for one (Safari, Chrome, Chrome on iPhone, Firefox, Samsung Internet)', okNone);
+  await probe.ctx.close(); phones.pop();
+
+  const ctxOpts = ua => ({ userAgent: ua, ...(IS_CHROMIUM ? { permissions: ['clipboard-read', 'clipboard-write'] } : {}) });
+  const shot = path.join(ROOT, 'tests', 'screenshots'); fs.mkdirSync(shot, { recursive: true });
+  // --- Instagram on iPhone, opened from a join link
+  const I = await phone('', { join: false, ctx: ctxOpts(UA.igIos) }); await I.goto('about:blank'); await I.goto(BASE + '#t=' + TEAM); await I.waitForSelector('#app *'); await wait(500);
+  const txt = await I.innerText('#app');
+  check('Instagram on iPhone: the app stops and says "Open this in Safari" with the steps', /Instagram's browser/.test(txt) && /Open this in Safari/.test(txt) && /Open in Safari/.test(txt) && !(await I.$('[data-act=next]')), txt.replace(/\n/g, ' ').slice(0, 120));
+  check('...it shows the team code from the link so it can be typed if copying fails', txt.includes(TEAM.slice(0, 4) + '-' + TEAM.slice(4)));
+  check('...it did NOT join the team or write anything to the database from inside Instagram', (await I.evaluate(() => CC.state().team)) === '' && mock.get(['events', TEAM]) === null);
+  check('...the join link is kept in the address so reloading does not lose it', new URL(I.url()).hash === '#t=' + TEAM);
+  await I.screenshot({ path: path.join(shot, 'iab-instagram-ios.png') });
+  await I.setViewportSize({ width: 320, height: 568 }); await wait(200);
+  const lay = await I.evaluate(() => { const bad = []; if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('hscroll'); document.querySelectorAll('#app button').forEach(b => { const r = b.getBoundingClientRect(); if (r.width && (r.height < 47.5 || r.width < 47.5)) bad.push(b.textContent.trim().slice(0, 12)); }); return bad.join(','); });
+  check('The screen fits the smallest phone (320 wide) with 48 px buttons', lay === '', lay);
+  await I.setViewportSize({ width: 375, height: 667 });
+  await tap(I, '[data-act=iab-copy]'); await wait(500);
+  if (IS_CHROMIUM) { const clip = await I.evaluate(() => navigator.clipboard.readText()); check('Copy link puts the full join link (with the team code) on the clipboard', clip === BASE + '#t=' + TEAM, clip); }
+  else check('Copy link gives feedback (toast or copy-by-hand box)', !!(await I.$('#toast, #manual')));
+  await I.reload(); await I.waitForSelector('#app *');
+  check('Reloading inside Instagram shows the screen again (and still holds the code)', /Open this in Safari/.test(await I.innerText('#app')) && (await I.innerText('#app')).includes(TEAM.slice(0, 4)));
+  await tap(I, '[data-act=iab-continue]');
+  check('"Continue here anyway" joins the team and warns on Home that this is not the best browser', await until(async () => (await I.evaluate(() => CC.state().team)) === TEAM && /Inside Instagram's browser/.test(await I.innerText('#app')), 8000), (await I.innerText('#app')).replace(/\n/g, ' ').slice(0, 140));
+  check('...and the join code is removed from the address bar', new URL(I.url()).hash === '');
+  await I.screenshot({ path: path.join(shot, 'iab-banner-home.png') });
+  await I.reload(); await I.waitForSelector('#app *'); await wait(400);
+  check('After choosing to continue, a reload goes straight Home (no nagging) and stays on the team', !!(await I.$('[data-act=next]')) && (await I.evaluate(() => CC.state().team)) === TEAM);
+  await tap(I, '.iabbar'); check('Tapping the warning shows the instructions again', /Open this in Safari/.test(await I.innerText('#app')));
+  await tap(I, '[data-act=iab-continue]'); check('...and Continue returns Home', !!(await I.$('[data-act=next]')));
+  check('Running a customer inside the in-app browser still works', await (async () => { await toQuestion(I); await answer(I, true); return !!(await I.$('#servebtn')); })());
+  check('No JS errors', noErr([I]), errs([I])); await I.ctx.close(); phones.pop(); mock.reset(); TEAM = newTeam();
+
+  // --- Instagram on Android, plain link without a code
+  const A = await phone('', { join: false, ctx: ctxOpts(UA.igAndroid) }); await A.goto('about:blank'); await A.goto(BASE); await A.waitForSelector('#app *'); await wait(400);
+  const ta = await A.innerText('#app');
+  check('Instagram on Android: says "Open this in Chrome" with Android steps and shows no team code when the link has none', /Open this in Chrome/.test(ta) && /Open in Chrome/.test(ta) && !/Your team code/.test(ta), ta.replace(/\n/g, ' ').slice(0, 100));
+  await A.screenshot({ path: path.join(shot, 'iab-instagram-android.png') });
+  await tap(A, '[data-act=iab-copy]'); await wait(400);
+  if (IS_CHROMIUM) check('Copy link on a plain link copies the plain address', (await A.evaluate(() => navigator.clipboard.readText())) === BASE);
+  await tap(A, '[data-act=iab-continue]'); check('Continue (no code) goes to the Join screen so the code can be typed', await until(async () => await A.isVisible('#code'), 4000));
+  check('No JS errors', noErr([A]), errs([A])); await A.ctx.close(); phones.pop();
+
+  // --- other in-app browsers show the screen too; normal browsers never do
+  for (const k of ['fbIos', 'tiktok', 'snapchat']) {
+    const P = await phone('', { join: false, ctx: ctxOpts(UA[k]) }); await P.goto('about:blank'); await P.goto(BASE + '#t=' + TEAM); await P.waitForSelector('#app *'); await wait(300);
+    check(`${k}: shows the "open in your browser" screen`, /Open this in (Safari|Chrome)/.test(await P.innerText('#app'))); await P.ctx.close(); phones.pop();
+  }
+  for (const k of ['safariIos', 'chromeAndroid', 'chromeIos']) {
+    const P = await phone('', { join: false, ctx: ctxOpts(UA[k]) }); await P.goto('about:blank'); await P.goto(BASE + '#t=' + TEAM); await P.waitForSelector('#app *'); await wait(300);
+    check(`${k}: normal browser joins straight away, no warning`, await until(async () => (await P.evaluate(() => CC.state().team)) === TEAM, 6000) && !/Open this in/.test(await P.innerText('#app')) && !(await P.$('.iabbar')));
+    await P.ctx.close(); phones.pop();
+  }
+  await reset();
+}
+
 /* ---------- 10. monkey test: random chaos ---------- */
-{
+if (want('10')) {
   const A = await phone('Monkey A'), B = await phone('Monkey B'); await until(async () => (await st(A)) === 'ok' && (await st(B)) === 'ok');
   const end = Date.now() + (+process.env.MONKEY_S || 60) * 1000; let acts = 0;
   const rndi = n => Math.floor(Math.random() * n);
@@ -243,7 +323,12 @@ const errs = ps => ps.flatMap(p => p.errors).join(' | ');
   mock.ctl.failRate = 0; mock.ctl.delayMs = 0; for (const p of [A, B]) { await p.ctx.setOffline(false); await p.setViewportSize({ width: 375, height: 667 }); }
   // some of the monkey's clicks may have left a modal or a customer on screen: finish cleanly
   for (const p of [A, B]) { for (let i = 0; i < 4; i++) { const m = await p.$('[data-act=modal-close]'); if (m) await m.click().catch(() => {}); await wait(200); } }
-  check(`Monkey test (${acts} random actions on 2 phones): no JavaScript errors`, noErr([A, B]), errs([A, B]));
+  const rej = (await Promise.all([A, B].map(p => p.evaluate(() => window.__rej || []).catch(() => [])))).flat();
+  check(`Monkey test (${acts} random actions on 2 phones): no uncaught promise rejections`, rej.length === 0, rej.slice(0, 3).join(' | '));
+  const realErrs = [A, B].flatMap(p => p.errors).filter(e => !/due to access control checks|Fetch API cannot load/.test(e));   // WebKit logs a cancelled or offline fetch like this even though the app handles it
+  const noise = [A, B].flatMap(p => p.errors).length - realErrs.length;
+  console.log(`  (monkey info: ${noise} WebKit-logged handled network failure(s), ${rej.length} uncaught rejection(s))`);
+  check(`Monkey test: no JavaScript errors (apart from WebKit logging handled network failures)`, realErrs.length === 0, realErrs.join(' | '));
   const settled = await until(async () => (await Promise.all([A, B].map(async p => (await st(p)) === 'ok' && (await unsent(p)) === 0))).every(Boolean), 20000);
   check('Both phones reconnect and have nothing unsent', settled);
   await wait(5000);
