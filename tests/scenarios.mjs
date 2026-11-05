@@ -49,7 +49,7 @@ async function reset() { await closeAll(); mock.reset(); TEAM = newTeam(); }
 const rem = p => p.evaluate(() => CC.remaining()); const st = p => p.evaluate(() => CC.syncState()); const unsent = p => p.evaluate(() => CC.unsent());
 const tap = async (p, sel) => { await p.waitForSelector(sel, { state: 'visible' }); await wait(330); await p.click(sel); };
 const fakeServe = (p, n) => p.evaluate(n => { const S = CC.state(); for (let i = 0; i < n; i++) { S.c.customers++; S.c.follows++; S.c.correct++; S.c.won++; S.c.hot++; S.c.served++; S.first = S.first || Date.now(); S.last = Date.now(); CC.commit(); } }, n);
-const toQuestion = async p => { await tap(p, '[data-act=next]'); await tap(p, '[data-act=follow-new]'); await tap(p, '[data-act=reveal]'); await p.waitForSelector('.ans[data-act=answer]', { timeout: 4000 }); await wait(450); };
+const toQuestion = async p => { await tap(p, '[data-act=next]'); await tap(p, '[data-act=follow-new]'); await tap(p, '[data-act=member-new]'); await tap(p, '[data-act=reveal]'); await p.waitForSelector('.ans[data-act=answer]', { timeout: 4000 }); await wait(450); };
 const answer = async (p, ok = true) => { const q = await p.evaluate(() => CC.QUESTIONS.find(x => x.id === CC.state().cur.qid)); const pick = ok ? q.answer : ['A', 'B', 'C', 'D'].find(l => l !== q.answer); await p.click(`.ans[data-k=${pick}]`); await p.waitForSelector('#result'); };
 const cloudDevices = () => { const m = mock.get(['events', TEAM, 'meta']); return mock.get(['events', TEAM, 'epochs', (m && m.epoch) || 'e0', 'devices']) || {}; };
 const cloudServed = () => Object.values(cloudDevices()).reduce((a, d) => a + d.c.served, 0);
@@ -66,6 +66,9 @@ if (want('1')) {
   check('Back on How to run it goes to Home', await p.isVisible('[data-act=next]') && onApp());
   await tap(p, '[data-act=next]'); await p.waitForSelector('[data-act=follow-new]'); await p.goBack(); await wait(400);
   check('Back on the Follow step cancels the customer and goes Home', await p.isVisible('[data-act=next]') && (await p.evaluate(() => CC.state().cur)) === null);
+  await tap(p, '[data-act=next]'); await tap(p, '[data-act=follow-new]'); await p.waitForSelector('#qrm'); await p.goBack(); await wait(400);
+  check('Back on the membership page asks "Cancel this customer?" instead of leaving', /Cancel this customer/.test(await p.innerText('.sheet').catch(() => '')) && onApp());
+  await tap(p, '[data-act=modal-close]'); await tap(p, '[data-act=cancel]'); await tap(p, '[data-act=cancel-yes]'); await p.waitForSelector('[data-act=next]');
   await toQuestion(p); await p.goBack(); await wait(400);
   check('Back mid-question asks "Cancel this customer?" instead of leaving', /Cancel this customer/.test(await p.innerText('.sheet').catch(() => '')) && onApp());
   await p.goBack(); await wait(400);
@@ -95,7 +98,8 @@ if (want('2')) {
   rows.push(await report('home'));
   await tap(p, '[data-act=summary]'); await p.waitForSelector('#stats'); rows.push(await report('summary')); await tap(p, '[data-act=back-home]');
   await tap(p, '[data-act=next]'); await p.waitForSelector('#qr'); rows.push(await report('follow'));
-  await tap(p, '[data-act=follow-new]'); await p.waitForSelector('[data-act=reveal]'); rows.push(await report('reveal'));
+  await tap(p, '[data-act=follow-new]'); await p.waitForSelector('[data-act=member-new]'); rows.push(await report('membership'));
+  await tap(p, '[data-act=member-new]'); await p.waitForSelector('[data-act=reveal]'); rows.push(await report('reveal'));
   await tap(p, '[data-act=reveal]'); await p.waitForSelector('.ans[data-act=answer]'); await wait(450); rows.push(await report('question'));
   await answer(p, false); rows.push(await report('result-retry'));
   check('Landscape: no sideways scrolling and every button can be scrolled into reach on every screen', rows.every(r => r.endsWith(':ok')), rows.join(' | '));

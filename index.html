@@ -68,7 +68,7 @@ svg.i{width:1.2em;height:1.2em;flex:none;vertical-align:-0.2em}
 .barbtn{min-height:48px;min-width:48px;padding:6px 12px;border:2px solid var(--ink);border-radius:12px;background:#fff;font-weight:800;font-size:17px;display:inline-flex;align-items:center;gap:6px;justify-self:start}
 .barbtn.r{justify-self:end}
 .barbtn:active{background:var(--gold-soft)}
-.steps{flex:none;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:0 16px}
+.steps{flex:none;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:0 16px}
 .steps i{height:7px;border-radius:4px;background:#D9D4C4}
 .steps i.on{background:var(--ink)}
 .steps i.done{background:var(--gold)}
@@ -281,6 +281,7 @@ var CONFIG = {
   discountLabel: '90% OFF',
   dropMs: 950,             // length of the deal drop moment
   syncUrl: 'https://ecomsoc-checkout-7k4q-default-rtdb.asia-southeast1.firebasedatabase.app',             // Firebase Realtime Database URL that shares the food count between phones (see README)
+  membershipUrl: 'https://campus.hellorubric.com/?s=14780',   // free club membership sign-up (Rubric). Leave '' to skip the membership step
   pollMs: 2000,            // how often each phone checks the team's numbers
   heartbeatMs: 15000       // how often an idle phone says it is still online
 };
@@ -318,7 +319,7 @@ var LETTERS = ['A', 'B', 'C', 'D'];
 var APP_VERSION = '2.0';
 var KEY = 'ecomsoc-checkout-challenge-v1';        // same key as v1: old data is migrated
 var URLKEY = 'ecomsoc-sync-url';                  // optional override, used by tests
-var COUNTERS = ['customers', 'follows', 'already', 'correct', 'wrong', 'retries', 'skips', 'hot', 'full', 'won', 'lost', 'served'];
+var COUNTERS = ['customers', 'follows', 'already', 'correct', 'wrong', 'retries', 'skips', 'hot', 'full', 'won', 'lost', 'served', 'members', 'memberAlready'];
 var CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no I, O, 0, 1
 var PROFILE_URL = 'https://www.instagram.com/' + CONFIG.handle + '/';
 var SYNC_URL = (CONFIG.syncUrl || '');
@@ -408,9 +409,9 @@ function normalise(o) {
   var cu = o.cur;
   if (cu && typeof cu === 'object') {
     var step = cu.step === 'drop' ? 'question' : cu.step;
-    var ok = ['follow', 'reveal', 'question', 'result'].indexOf(step) >= 0;
+    var ok = ['follow', 'member', 'reveal', 'question', 'result'].indexOf(step) >= 0;
     if (ok && (step === 'question' || step === 'result') && !qById(cu.qid)) ok = false;
-    if (ok) f.cur = { step: step, follow: cu.follow === 'new' || cu.follow === 'already' ? cu.follow : null,
+    if (ok) f.cur = { step: step, follow: cu.follow === 'new' || cu.follow === 'already' ? cu.follow : null, member: cu.member === 'new' || cu.member === 'already' ? cu.member : null,
       qid: cu.qid || null, attempt: nn(cu.attempt, 1) || 1, counted: !!cu.counted, picked: cu.picked || null, ok: !!cu.ok };
   }
   return f;
@@ -751,7 +752,10 @@ function ago(ts) { if (!ts) return 'never'; var s = Math.max(0, Math.round((Date
 
 /* ---------- components ---------- */
 function bar(left, mid, right) { return '<header class="bar">' + (left || '<span></span>') + '<div class="mid">' + esc(mid || '') + '</div>' + (right || '<span></span>') + '</header>'; }
-function steps(n) { var h = '<div class="steps" aria-hidden="true">'; for (var i = 1; i <= 4; i++) h += '<i class="' + (i < n ? 'done' : i === n ? 'on' : '') + '"></i>'; return h + '</div>'; }
+function total() { return CONFIG.membershipUrl ? 5 : 4; }
+function stepNo(name) { var t = total(); return { follow: 1, member: 2, reveal: t - 2, question: t - 1, result: t }[name]; }
+function stepLabel(name) { return 'Step ' + stepNo(name) + ' of ' + total(); }
+function steps(n) { var h = '<div class="steps" style="grid-template-columns:repeat(' + total() + ',1fr)" aria-hidden="true">'; for (var i = 1; i <= total(); i++) h += '<i class="' + (i < n ? 'done' : i === n ? 'on' : '') + '"></i>'; return h + '</div>'; }
 function dealStrip(diff, animate) {
   if (diff === 'easy') return '<div class="deal hot' + (animate ? ' pop' : '') + '" id="deal"><span class="lbl">' + ico('tag') + 'HOT DEAL</span><s>$' + CONFIG.rrp + '</s><span class="off">' + esc(CONFIG.discountLabel) + '</span></div>';
   return '<div class="deal full' + (animate ? ' pop' : '') + '" id="deal"><span class="lbl">' + ico('tag') + 'FULL PRICE</span><small>RRP $' + CONFIG.rrp + ', no discount today</small></div>';
@@ -837,7 +841,7 @@ function iabBanner() {
 }
 function screenFollow() {
   var px = Math.min(window.innerWidth - 56, Math.round(window.innerHeight * 0.4), 320);
-  return bar('<button class="barbtn" data-act="back-home">' + ico('back') + 'Back</button>', 'Step 1 of 4') + steps(1) +
+  return bar('<button class="barbtn" data-act="back-home">' + ico('back') + 'Back</button>', stepLabel('follow')) + steps(stepNo('follow')) +
   '<main class="main">' +
     '<div class="center"><h1 class="title">Payment: follow us</h1><p class="sub">Scan, then follow on Instagram</p></div>' +
     '<div class="qrcard">' + qrSvg(px) + '</div>' +
@@ -850,8 +854,22 @@ function screenFollow() {
   '</footer>';
 }
 
+function screenMember() {
+  var px = Math.min(window.innerWidth - 56, Math.round(window.innerHeight * 0.4), 320);
+  return bar('<button class="barbtn" data-act="cancel">' + ico('back') + 'Cancel</button>', stepLabel('member')) + steps(stepNo('member')) +
+  '<main class="main">' +
+    '<div class="center"><h1 class="title">Free membership</h1><p class="sub">Scan to join UNSW E-Commerce Society on Rubric</p></div>' +
+    '<div class="qrcard">' + qrSvg(px, CONFIG.membershipUrl, 'qrm') + '</div>' +
+    '<div class="handle" style="font-size:clamp(22px,6.5vw,28px)">Free to join</div>' +
+    '<div class="spacer"></div>' +
+  '</main>' +
+  '<footer class="foot">' +
+    '<button class="btn pri" data-act="member-new">' + ico('check') + 'Membership done</button>' +
+    '<button class="btn sm" data-act="member-already">Already a member</button>' +
+  '</footer>';
+}
 function screenReveal() {
-  return bar('<button class="barbtn" data-act="cancel">' + ico('back') + 'Cancel</button>', 'Step 2 of 4') + steps(2) +
+  return bar('<button class="barbtn" data-act="cancel">' + ico('back') + 'Cancel</button>', stepLabel('reveal')) + steps(stepNo('reveal')) +
   '<main class="main">' +
     '<div class="center"><h1 class="title">Payment received!</h1><p class="sub">Now see what your deal is today</p></div>' +
     '<div class="mystery" aria-hidden="true"><b>?</b><span>Your deal is waiting</span></div>' +
@@ -862,7 +880,7 @@ function screenReveal() {
 
 function screenDrop() {
   var q = qById(cur().qid);
-  return bar('<span></span>', 'Step 2 of 4') + steps(2) +
+  return bar('<span></span>', stepLabel('reveal')) + steps(stepNo('reveal')) +
   '<main class="main"><div class="dropwrap' + (REDUCED ? ' nomo' : '') + '" role="status">' +
     '<div class="scanbox" aria-hidden="true"><div class="bc"></div><div class="ln"></div></div>' +
     bigTag(q.difficulty) +
@@ -875,8 +893,8 @@ function screenQuestion() {
   var ans = LETTERS.map(function (k) {
     return '<button class="ans" data-act="answer" data-k="' + k + '"><span class="ltr">' + k + '</span><span class="txt">' + esc(q.options[k]) + '</span></button>';
   }).join('');
-  var h = bar('<button class="barbtn" data-act="cancel">' + ico('back') + 'Cancel</button>', 'Step 3 of 4',
-              '<button class="barbtn r" data-act="skip">Skip' + ico('skip') + '</button>') + steps(3) +
+  var h = bar('<button class="barbtn" data-act="cancel">' + ico('back') + 'Cancel</button>', stepLabel('question'),
+              '<button class="barbtn r" data-act="skip">Skip' + ico('skip') + '</button>') + steps(stepNo('question')) +
   '<main class="main" style="padding-bottom:max(14px,var(--safe-b))"><div class="qwrap">' +
     '<div style="display:flex;flex-direction:column;gap:10px">' + dealStrip(q.difficulty, freshQ) +
     '<h1 class="qtext' + (long ? ' long' : '') + '" id="qtext">' + esc(q.question) + '</h1></div>' +
@@ -907,7 +925,7 @@ function screenResult() {
     else { cls += ' is-wrong'; tag = '<span class="tag">' + ico('x') + 'Your pick</span>'; }
     return '<button class="' + cls + '" tabindex="-1"><span class="ltr">' + k + '</span><span class="txt">' + esc(q.options[k]) + '</span>' + tag + '</button>';
   }).join('');
-  return bar('<span></span>', 'Step 4 of 4') + steps(4) +
+  return bar('<span></span>', stepLabel('result')) + steps(stepNo('result')) +
   '<main class="main"><div id="resbanner">' + resultBanner() + '</div>' +
     '<div class="qtext small">' + esc(q.question) + '</div>' +
     '<div class="answers done">' + ans + '</div>' +
@@ -920,6 +938,7 @@ function statGrid() {
   function s(n, l, cls) { return '<div class="stat ' + (cls || '') + '"><b>' + n + '</b><span>' + l + '</span></div>'; }
   return s(c.customers, 'Customers') + s(remaining() + ' / ' + (S.startStock + totals().adj), 'Food left') +
     s(c.follows, 'Follows confirmed') + s(c.already, 'Already following') +
+    (CONFIG.membershipUrl ? s(c.members, 'Memberships confirmed') + s(c.memberAlready, 'Already members') : '') +
     s(c.correct, 'Answers correct') + s(c.wrong, 'Answers wrong') +
     s(c.won, 'Customers won') + s(c.lost, 'Customers lost') +
     s(c.hot, 'HOT DEAL draws', 'hot') + s(c.full, 'FULL PRICE draws') +
@@ -943,6 +962,8 @@ function summaryText() {
     'Customers: ' + c.customers,
     'Follows confirmed: ' + c.follows,
     'Already following: ' + c.already,
+    CONFIG.membershipUrl ? 'Memberships confirmed: ' + c.members : null,
+    CONFIG.membershipUrl ? 'Already members: ' + c.memberAlready : null,
     'Answers correct: ' + c.correct,
     'Answers wrong: ' + c.wrong,
     'Customers won: ' + c.won,
@@ -956,7 +977,7 @@ function summaryText() {
   ];
   if (recs.length > 1) { lines.push('By phone:'); recs.forEach(function (r) { lines.push('- ' + phoneName(r) + ': ' + r.c.customers + ' customers, ' + r.c.served + ' served'); }); }
   if (syncOn() && syncState() !== 'ok') lines.push('Note: this phone was offline, other phones last updated ' + ago(net.pollOk));
-  return lines.join('\n');
+  return lines.filter(function (l) { return l !== null; }).join('\n');
 }
 function screenSummary() {
   var sp = syncParts(), sh = syncOn();
@@ -990,6 +1011,7 @@ function screenHelp() {
     '<li><span>Hold the phone so the visitor can read it. Tap <b>Next customer</b>.</span></li>' +
     '<li><span>Ask them to scan the QR code and follow <b>@' + esc(h) + '</b> on Instagram.</span></li>' +
     '<li><span>Check their screen says <b>Following</b>, then tap <b>Follow confirmed</b>. Already a follower? Tap <b>Already following</b>.</span></li>' +
+    (CONFIG.membershipUrl ? '<li><span>Next, the free membership QR: they scan it and sign up on Rubric. Then tap <b>Membership done</b>, or <b>Already a member</b>.</span></li>' : '') +
     '<li><span>Tap <b>Reveal deal</b>. HOT DEAL means an easy question, FULL PRICE means a harder one.</span></li>' +
     '<li><span>Let them point or tap their answer, then tap it for them. Do not hint. Heard the question already? Tap <b>Skip</b>.</span></li>' +
     '<li><span>Read the <b>Say this</b> fun fact out loud. If they are right, tap <b>Serve food</b> and hand over one cup of Thai food.</span></li>' +
@@ -1012,6 +1034,7 @@ function render() {
   else if (view === 'iab' && IAB) html = screenIab();
   else if (view === 'flow' && cu) {
     if (cu.step === 'follow') html = screenFollow();
+    else if (cu.step === 'member') html = screenMember();
     else if (cu.step === 'reveal') html = screenReveal();
     else if (cu.step === 'drop') html = screenDrop();
     else if (cu.step === 'question') { html = screenQuestion(); answerLockUntil = Date.now() + 350; }
@@ -1093,6 +1116,7 @@ function doAnswer(k) {
   if (!cu.counted) {
     cu.counted = true; c.customers++;
     if (cu.follow === 'already') c.already++; else c.follows++;
+    if (cu.member === 'new') c.members++; else if (cu.member === 'already') c.memberAlready++;
     if (!S.first) S.first = now;
   }
   S.last = now;
@@ -1166,8 +1190,10 @@ document.addEventListener('click', function (e) {
     case 'back-home':
       if (view === 'flow' && cu && cu.step === 'follow') { S.cur = null; save(); }
       go('home'); break;
-    case 'follow-new': cu.follow = 'new'; cu.step = 'reveal'; save(); go('flow'); break;
-    case 'follow-already': cu.follow = 'already'; cu.step = 'reveal'; save(); go('flow'); break;
+    case 'follow-new': cu.follow = 'new'; cu.step = CONFIG.membershipUrl ? 'member' : 'reveal'; save(); go('flow'); break;
+    case 'follow-already': cu.follow = 'already'; cu.step = CONFIG.membershipUrl ? 'member' : 'reveal'; save(); go('flow'); break;
+    case 'member-new': cu.member = 'new'; cu.step = 'reveal'; save(); go('flow'); break;
+    case 'member-already': cu.member = 'already'; cu.step = 'reveal'; save(); go('flow'); break;
     case 'cancel': askCancel(); break;
     case 'cancel-yes': closeModal(); endCustomer(); break;
     case 'modal-close': closeModal(); break;

@@ -57,7 +57,7 @@ async function fakeServe(p, n) {
 }
 async function tap(p, sel) { await p.waitForSelector(sel, { state: 'visible' }); await wait(300); await p.click(sel); }
 async function uiServe(p) {
-  await tap(p, '[data-act=next]'); await tap(p, '[data-act=follow-new]'); await tap(p, '[data-act=reveal]');
+  await tap(p, '[data-act=next]'); await tap(p, '[data-act=follow-new]'); await tap(p, '[data-act=member-new]'); await tap(p, '[data-act=reveal]');
   await p.waitForSelector('.ans[data-act=answer]', { timeout: 4000 }); await wait(450);
   const [qid] = await p.evaluate(() => [CC.state().cur.qid]);
   const letter = await p.evaluate(id => CC.QUESTIONS.find(q => q.id === id).answer, qid);
@@ -93,6 +93,7 @@ teamsUsed.add(TEAM);
   check('A serves one customer through the screens: A shows 79 left', (await rem(A)) === 79);
   check('B sees 79 left within 5 seconds, without touching anything', await until(async () => (await rem(B)) === 79, 5000), 'B=' + await rem(B));
   check('B Home screen text updates by itself (79)', await until(async () => /79/.test(await B.innerText('.stock .n')), 3000));
+  check('B also sees the membership counted on A (shared totals)', await until(async () => (await B.evaluate(() => CC.totals().c.members)) === 1, 4000));
   check('B counts the customer and the winner in the tallies', /1\s*Customers/.test((await B.innerText('#tallies')).replace(/\n/g, ' ')) && /1\s*Winners/.test((await B.innerText('#tallies')).replace(/\n/g, ' ')));
   const poll = async () => { const t = Date.now(); await A.evaluate(() => CC.pollNow()); return Date.now() - t; };
   check('One check of the team numbers takes under 1.5 s (local)', (await poll()) < 1500);

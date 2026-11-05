@@ -10,3 +10,5 @@ volunteer-join-qr.png
 .firebaserc
 tests/last-soak-run.json
 VOLUNTEER-MESSAGE.md
+.deploy/
+.firebase/

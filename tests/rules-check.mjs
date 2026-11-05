@@ -18,7 +18,8 @@ async function call(method, p, body, extra = {}) {
   const r = await fetch(`${DB}/${p}.json${method === 'GET' ? '' : '?print=silent'}`, { method, body: body === undefined ? undefined : JSON.stringify(body), headers: body === undefined ? undefined : { 'content-type': 'application/json' }, ...extra });
   let json = null; if (r.status === 200) json = await r.json(); return { status: r.status, json };
 }
-const zero = { customers: 0, follows: 0, already: 0, correct: 0, wrong: 0, retries: 0, skips: 0, hot: 0, full: 0, won: 0, lost: 0, served: 0 };
+const oldZero = { customers: 0, follows: 0, already: 0, correct: 0, wrong: 0, retries: 0, skips: 0, hot: 0, full: 0, won: 0, lost: 0, served: 0 };   // records from before the membership step
+const zero = { ...oldZero, members: 0, memberAlready: 0 };
 const dev = (o = {}) => ({ c: { ...zero }, adj: 0, rev: 1, hb: Date.now(), app: 2, ...o });
 const T = `events/${team}`, D = `${T}/epochs/e0/devices/abcdef123456`;
 const denied = async (name, m, p, body) => { const r = await call(m, p, body); check(name, r.status === 401 || r.status === 403 || r.status === 400, 'HTTP ' + r.status); };
@@ -48,6 +49,10 @@ await allowed('Same revision again is accepted (heartbeat)', 'PUT', D, dev({ rev
 await allowed('Higher revision is accepted', 'PUT', D, dev({ rev: 5, c: { ...zero, served: 3, customers: 3 } }));
 await denied('Going back to an older revision is refused (stale, delayed write)', 'PUT', D, dev({ rev: 4 }));
 { const r = await call('GET', D); check('Refused stale write did not change the data', r.json && r.json.rev === 5 && r.json.c.served === 3, JSON.stringify(r.json && r.json.rev)); }
+await allowed('Membership counters are accepted', 'PUT', D, dev({ rev: 6, c: { ...zero, members: 4, memberAlready: 2 } }));
+await allowed('A record from the older app version (no membership counters) is still accepted', 'PUT', D, dev({ rev: 7, c: { ...oldZero, served: 3, customers: 3 } }));
+await denied('Membership counter beyond 100000 is refused', 'PUT', D, dev({ rev: 9, c: { ...zero, members: 1000000 } }));
+await denied('Negative membership counter is refused', 'PUT', D, dev({ rev: 9, c: { ...zero, memberAlready: -1 } }));
 await denied('Record without counters is refused', 'PUT', D, { rev: 9, hb: 1 });
 await denied('Record missing "served" is refused', 'PUT', D, dev({ rev: 9, c: { customers: 1 } }));
 await denied('Negative counter is refused', 'PUT', D, dev({ rev: 9, c: { ...zero, served: -1 } }));

@@ -3,18 +3,18 @@
   "total": 12,
   "failed": [],
   "sum": {
-    "customers": 77,
-    "follows": 56,
-    "already": 21,
-    "correct": 63,
-    "wrong": 32,
-    "retries": 19,
-    "skips": 10,
-    "hot": 74,
-    "full": 21,
-    "won": 63,
-    "lost": 13,
-    "served": 63
+    "customers": 57,
+    "follows": 42,
+    "already": 15,
+    "correct": 44,
+    "wrong": 26,
+    "retries": 14,
+    "skips": 5,
+    "hot": 48,
+    "full": 22,
+    "won": 44,
+    "lost": 12,
+    "served": 44
   },
-  "expectedRem": 2936
+  "expectedRem": 2954
 }

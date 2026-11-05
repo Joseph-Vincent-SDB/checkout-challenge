@@ -3,7 +3,7 @@
 // and can inject faults: delays, errors, lost responses, hung requests and dropped connections.
 import http from 'node:http';
 
-const COUNTERS = ['customers', 'follows', 'already', 'correct', 'wrong', 'retries', 'skips', 'hot', 'full', 'won', 'lost', 'served'];
+const COUNTERS = ['customers', 'follows', 'already', 'correct', 'wrong', 'retries', 'skips', 'hot', 'full', 'won', 'lost', 'served', 'members', 'memberAlready'];
 const isNum = (v, lo = -Infinity, hi = Infinity) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 const isStr = (v, max) => typeof v === 'string' && v.length <= max;
 

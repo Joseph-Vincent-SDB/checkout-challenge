@@ -72,6 +72,12 @@
                   "served": {
                     ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
                   },
+                  "members": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
+                  "memberAlready": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+                  },
                   "$other": {
                     ".validate": false
                   }

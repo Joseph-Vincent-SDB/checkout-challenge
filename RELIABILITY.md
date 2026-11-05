@@ -44,6 +44,7 @@ Test engines: Chromium (Chrome and Android) and WebKit (the engine inside every 
 
 | Situation | What the app does | Tested by |
 | --- | --- | --- |
+| New counters (memberships) on a mix of old and new app versions | Database rules accept both record shapes: phones on the older version keep sharing, and unknown counters are still refused. | `rules-check.mjs` (live), `sync.mjs` |
 | Several phones serve at once | Exact total. Each phone only writes its own record. | `sync.mjs` (2), soak |
 | Phone offline while others serve | Catches up exactly when back. Nothing lost or doubled. | `sync.mjs` (3), soak |
 | Last cups | Below 15 left, Serve first fetches the latest count and turns into "Sold out" if the food just went. Screens update by themselves. | `sync.mjs` (9) |

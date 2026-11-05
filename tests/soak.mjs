@@ -56,6 +56,7 @@ async function customer(p) {
       await sleep(400); continue;
     }
     if (cu.step === 'follow') { await tapq(p, Math.random() < 0.3 ? '[data-act=follow-already]' : '[data-act=follow-new]'); }
+    else if (cu.step === 'member') { await tapq(p, Math.random() < 0.3 ? '[data-act=member-already]' : '[data-act=member-new]'); }
     else if (cu.step === 'reveal') { await tapq(p, '[data-act=reveal]'); }
     else if (cu.step === 'drop') { await sleep(500); }
     else if (cu.step === 'question') {

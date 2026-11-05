@@ -4,12 +4,15 @@ A phone-first web app for the UNSW E-Commerce Society (EcomSoc) stall at Arc Clu
 
 It is a plain static site: `index.html` (inline CSS and JavaScript), `qr.js`, `sw.js`, `manifest.webmanifest`, `logo.jpg` and `icons/`. No framework and no build step. **All volunteer phones share one live food count and one set of tallies** through a small free Firebase Realtime Database (see "Sharing between phones"). No personal data about visitors is ever collected. Each phone also keeps its own copy on the phone, so the app keeps working with no signal and catches up when the signal returns. The whole app is about 130 KB.
 
-## How a customer runs (4 taps plus the answer)
+## How a customer runs (5 taps plus the answer)
 
 1. **Next customer**
-2. **Follow confirmed** (or **Already following**, counted separately)
-3. **Reveal deal**: a random question is drawn. Easy = **HOT DEAL**, hard = **FULL PRICE**.
-4. The visitor points or taps an answer and the volunteer taps it. Correct gives **Order confirmed**, then **Serve food**.
+2. **Follow confirmed** (or **Already following**, counted separately). The screen shows the Instagram QR code.
+3. **Membership done** (or **Already a member**, counted separately). The screen shows a QR code for free UNSW E-Commerce Society membership on Rubric (`CONFIG.membershipUrl`). Leave `membershipUrl` empty in `index.html` to switch this step off (the flow goes back to 4 taps and 4 steps).
+4. **Reveal deal**: a random question is drawn. Easy = **HOT DEAL**, hard = **FULL PRICE**.
+5. The visitor points or taps an answer and the volunteer taps it. Correct gives **Order confirmed**, then **Serve food**.
+
+The app cannot see whether the visitor really followed or signed up: the volunteer checks the visitor's screen, then taps the button.
 
 A wrong answer gives one more random question. A second wrong answer means no food (the follow still counts). The volunteer can **Cancel** before an answer (nothing is counted) or **Skip** a question the visitor has overheard (counted as a skip). The in-app **How to run it** screen has the volunteer steps.
 
@@ -46,19 +49,29 @@ Command-line alternative to steps 1 to 3 (needs Node.js): `npx firebase-tools lo
 ### Joining phones
 
 1. Make a team code: 8 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no I, O, 0 or 1), for example `K7MQ-X2PA`. Anyone with the code can read and change your numbers, so share it only with volunteers. **Do not commit it to the repository.**
-2. Volunteers open the link `https://<owner>.github.io/<repo>/#t=K7MQX2PA` (or scan a QR code of it). The phone joins, removes the code from the address bar and remembers it.
+2. Volunteers open the link `https://ecomsoc-checkout.web.app/#t=K7MQX2PA` (or scan a QR code of it). The phone joins, removes the code from the address bar and remembers it.
 3. Another way: open the app, choose **Join team** and type the code. On a phone already on the team, **Summary > Show join QR** shows a QR code for new volunteers to scan.
 4. **iPhone note:** an app added to the Home Screen has its own storage, separate from Safari. After adding it, open the app and type the team code once (Summary shows the code on phones already joined).
 5. Name each phone in **Summary > This phone's name**, so the Phones list and Copy summary say who served what.
 6. A phone that joins a team starts from zero. If it had practice tallies, it asks before clearing them.
 
-## Deploy to GitHub Pages
+## Where the app is hosted
 
-1. Put these files in a public GitHub repository (the site root is the repository root).
-2. Repository **Settings > Pages > Build and deployment**: source **Deploy from a branch**, branch `main`, folder `/ (root)`.
-3. After a minute the site is live at `https://<owner>.github.io/<repo>/`. GitHub Pages is HTTPS, which the wake lock and offline support need.
+The live address is **https://ecomsoc-checkout.web.app** (Firebase Hosting, same free Firebase project as the shared food count). It is HTTPS, which the wake lock and offline support need, and the address contains no personal name.
 
-Viewers need no account. Any static host works the same way (Netlify, Cloudflare Pages, and so on). Netlify Drop sites are deleted within an hour unless claimed with an account.
+To publish a change: edit the files, bump `CACHE` in `sw.js` (for example `v11`), then run
+
+```bash
+./scripts/deploy-hosting.sh
+```
+
+It copies **only** the app files (`index.html`, `qr.js`, `sw.js`, `manifest.webmanifest`, `logo.jpg`, `icons/`) into `.deploy/` and publishes them. The tests, documents and the QR images that contain the team code are never uploaded. It needs Node.js and a Firebase login (`npx firebase-tools login`). The Hosting settings (site name, cache headers) are in `firebase.json`.
+
+**Making your own site name:** `npx firebase-tools hosting:sites:create <name> --project <project>` gives `https://<name>.web.app`. Put the name in `firebase.json` under `hosting.site`.
+
+**GitHub Pages (optional, older):** the same files also work on GitHub Pages (Settings, Pages, deploy from the `main` branch root), but the address then contains the GitHub account name, for example `https://<owner>.github.io/<repo>/`. Any static host works the same way.
+
+Viewers need no account.
 
 ## On event day
 
@@ -103,7 +116,7 @@ To correct the shared food count mid-day (for example a dropped cup), use **Summ
 
 Per-customer tallies are committed when the customer's first answer is tapped, so a customer cancelled earlier is not counted. Skips are counted straight away. Everything below is totalled across all phones on the team.
 
-- **Customers**, **follows confirmed**, **already following**
+- **Customers**, **follows confirmed**, **already following**, **memberships confirmed**, **already members**
 - **Answers correct / wrong** (each answer, including retries), **retries given**
 - **Customers won** (answered correctly, even if food had sold out) and **customers lost** (no food)
 - **HOT DEAL / FULL PRICE draws** (answered draws), **skips**
@@ -134,7 +147,7 @@ npm test                            # solo, multi-phone, rules and update suites
 - The same file also covers **links opened inside Instagram and other in-app browsers** (recognition by browser identifier, the guidance screen, the best-effort handoff to the default browser, Copy link, Continue anyway, and normal browsers being unaffected).
 - `npm run test:safari`: runs the solo, multi-phone, scenario and update suites on **WebKit**, the engine inside every iPhone browser (`npx playwright install webkit` first). Any suite can be pointed at it with `BROWSER=webkit`.
 - `npm run test:update` (`sw-update.mjs`, 8 checks): a new version installs from fresh files even when the host allows 10 minute caching, never reloads in the middle of a customer, reloads itself once idle on Home, and opens offline.
-- `npm run test:soak` (`soak.mjs`): the long one. Several phones run random customers for minutes against a deployed site and a real database, with random offline spells, refreshes, app-switching and settings taps. At the end every phone and the database must agree exactly. Example: `BASE_URL=https://<owner>.github.io/<repo>/ SYNC_URL=<db url> DURATION_S=240 PHONES=5 npm run test:soak`. It uses a throwaway team code and deletes its data.
+- `npm run test:soak` (`soak.mjs`): the long one. Several phones run random customers for minutes against a deployed site and a real database, with random offline spells, refreshes, app-switching and settings taps. At the end every phone and the database must agree exactly. Example: `BASE_URL=https://ecomsoc-checkout.web.app/ SYNC_URL=<db url> DURATION_S=240 PHONES=5 npm run test:soak`. It uses a throwaway team code and deletes its data.
 - `npm run test:rules` (`rules-check.mjs`, 36 checks): probes the security rules directly.
 - `npm run test:live`: runs the rules probe and the multi-phone tests against **your real database**: `SYNC_URL=https://<db>.firebasedatabase.app npm run test:live`. It uses a random team code and deletes its own data.
 

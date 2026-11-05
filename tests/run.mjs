@@ -73,6 +73,7 @@ async function answer(page, wantCorrect) {
 async function startCustomer(page, already = false) {
   await tap(page, '[data-act=next]');
   await tap(page, already ? '[data-act=follow-already]' : '[data-act=follow-new]');
+  await tap(page, already ? '[data-act=member-already]' : '[data-act=member-new]');
   await tap(page, '[data-act=reveal]');
   await page.waitForSelector('.ans[data-act=answer]', { timeout: 3000 });
 }
@@ -310,8 +311,52 @@ for (const name of DEVICES) {
   await page.screenshot({ path: path.join(SHOTS, '12-result-soldout.png') });
   await tap(page, '[data-act=done]'); await page.waitForSelector('[data-act=next]');
   check('Stock never goes below 0', (await rem(page)) === 0);
-  check('Tap count Home to Serve food is 4 or fewer (excluding answer)', true, 'Next customer, Follow confirmed, Reveal deal, Serve food = 4');
+  check('Tap count Home to Serve food is 5 (excluding the answer): one more than before, for the membership step', true, 'Next customer, Follow confirmed, Membership done, Reveal deal, Serve food = 5');
   check('No JS errors during logic run', page.errors.length === 0, page.errors.join(' | '));
+  await page.context().close();
+}
+
+/* ================================================================
+   4b. Free membership step (Rubric QR after the Instagram follow)
+   ================================================================ */
+{
+  const jsQR = (await import('jsqr')).default; const { PNG } = await import('pngjs');
+  const RUBRIC = 'https://campus.hellorubric.com/?s=14780';
+  const page = await newPage(SE);
+  await page.goto(BASE); await page.waitForSelector('[data-act=next]');
+  check('Config holds the Rubric membership link', (await page.evaluate(() => CC.CONFIG.membershipUrl)) === RUBRIC);
+  await tap(page, '[data-act=next]'); await tap(page, '[data-act=follow-new]'); await page.waitForSelector('#qrm'); await wait(350);
+  const txt = await page.innerText('#app');
+  check('After Follow confirmed the next page is the free membership QR', /Free membership/.test(txt) && /Rubric/.test(txt) && !!(await page.$('[data-act=member-new]')) && !!(await page.$('[data-act=member-already]')), txt.replace(/\n/g, ' ').slice(0, 110));
+  check('The step bar now says Step 2 of 5 with five segments', /STEP 2 OF 5/i.test(txt) && (await page.$$eval('.steps i', els => els.length)) === 5);
+  const png = PNG.sync.read(await (await page.$('.qrcard')).screenshot());
+  const code = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+  check('The QR on screen decodes to your Rubric link', code && code.data === RUBRIC, code ? code.data : 'no decode');
+  const lr = await layoutReport(page);
+  check('Membership page: no sideways scroll, every button 48 px, fits without scrolling', !lr.hscroll && !lr.smallTargets.length && !lr.gapIssues.length && !lr.mainScrolls && !lr.overflowEls.length, JSON.stringify(lr));
+  await page.setViewportSize({ width: 320, height: 568 }); await wait(200);
+  const lr2 = await layoutReport(page);
+  check('...and on the smallest phone (320 x 568): no sideways scroll, every button 48 px', !lr2.hscroll && !lr2.smallTargets.length && !lr2.gapIssues.length, JSON.stringify(lr2.smallTargets));
+  await page.setViewportSize({ width: 375, height: 667 }); await wait(200);
+  await page.reload(); await page.waitForSelector('#qrm');
+  check('Refreshing on the membership page resumes on the membership page', /Free membership/.test(await page.innerText('#app')) && (await getState(page)).cur.step === 'member');
+  await tap(page, '[data-act=cancel]'); await tap(page, '[data-act=cancel-yes]'); await page.waitForSelector('[data-act=next]');
+  check('Cancelling on the membership page counts nothing', (await getState(page)).c.customers === 0 && (await getState(page)).c.members === 0);
+  // one customer who signs up, one who already is a member
+  await startCustomer(page, false); await answer(page, true); await page.waitForSelector('#result'); await tap(page, '[data-act=serve]'); await page.waitForSelector('[data-act=next]');
+  await startCustomer(page, true); await answer(page, true); await page.waitForSelector('#result'); await tap(page, '[data-act=serve]'); await page.waitForSelector('[data-act=next]');
+  const s = await getState(page);
+  check('Memberships are counted at the first answer: 1 new, 1 already a member', s.c.members === 1 && s.c.memberAlready === 1 && s.c.customers === 2, JSON.stringify({ m: s.c.members, a: s.c.memberAlready, c: s.c.customers }));
+  await tap(page, '[data-act=summary]'); await page.waitForSelector('#stats');
+  const st = (await page.innerText('#stats')).replace(/\n/g, ' ');
+  check('Summary shows Memberships confirmed and Already members', /1\s*Memberships confirmed/.test(st) && /1\s*Already members/.test(st), st.slice(0, 160));
+  if (IS_CHROMIUM) { await tap(page, '[data-act=copy]'); await wait(300); const clip = await page.evaluate(() => navigator.clipboard.readText()); check('Copy summary includes the membership lines', /Memberships confirmed: 1/.test(clip) && /Already members: 1/.test(clip)); }
+  await tap(page, '[data-act=back-home]'); await page.waitForSelector('[data-act=next]');
+  // switching the step off (empty link) goes straight from follow to the deal, with 4 steps again
+  await page.evaluate(() => { CC.CONFIG.membershipUrl = ''; });
+  await tap(page, '[data-act=next]'); await tap(page, '[data-act=follow-new]'); await page.waitForSelector('[data-act=reveal]');
+  check('With the membership link left empty the step is skipped and the bar says Step 2 of 4', /STEP 2 OF 4/i.test(await page.innerText('#app')) && (await page.$$eval('.steps i', els => els.length)) === 4);
+  check('No JS errors', page.errors.length === 0, page.errors.join(' | '));
   await page.context().close();
 }
 
@@ -437,7 +482,8 @@ for (const name of DEVICES) {
   await shot('01-home');
   await tap(page, '[data-act=help]'); await page.waitForSelector('ol.how'); await shot('02-how-to-run-it'); await tap(page, '[data-act=back-home]');
   await tap(page, '[data-act=next]'); await page.waitForSelector('#qr'); await wait(300); await shot('03-follow');
-  await tap(page, '[data-act=follow-new]'); await page.waitForSelector('[data-act=reveal]'); await wait(300); await shot('04-reveal');
+  await tap(page, '[data-act=follow-new]'); await page.waitForSelector('#qrm'); await wait(300); await shot('03b-membership');
+  await tap(page, '[data-act=member-new]'); await page.waitForSelector('[data-act=reveal]'); await wait(300); await shot('04-reveal');
   // force a HOT DEAL draw for the deal-drop screenshot
   await seed(page, s => { s.cur = { step: 'reveal', follow: 'new', qid: null, attempt: 1, counted: false, picked: null, ok: false }; s.bags.easy = ['E09', 'E04', 'E01']; s.bags.hard = ['H07', 'H01']; });
   await page.evaluate(() => { window.CONFIG_OLD = window.CC.CONFIG.hotDealPercent; window.CC.CONFIG.hotDealPercent = 100; });
