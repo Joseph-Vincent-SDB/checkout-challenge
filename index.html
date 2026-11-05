@@ -691,6 +691,38 @@ function detectIab(ua) {
 var IAB = detectIab(), IABKEY = 'ecomsoc-iab-ack', iabAck = false, pendingCode = '';
 try { iabAck = localStorage.getItem(IABKEY) === '1'; } catch (e) {}
 function iabBlocking() { return !!IAB && !iabAck; }
+/* Best-effort handoff from the in-app browser to the phone's default browser. These URL schemes are not
+   official, so it may not work in every app or OS version: the guide screen stays as the fallback.
+   iPhone: x-safari-https://...   Android: intent://...#Intent;scheme=https;...;end (no package, so the default browser is used) */
+function buildHandoff(os, base) {
+  var m = String(base).match(/^(https?):\/\/(.*)$/i); if (!m) return '';
+  var sch = m[1].toLowerCase();
+  if (os === 'ios') return 'x-safari-' + sch + '://' + m[2];
+  if (os === 'android') return 'intent://' + m[2] + '#Intent;scheme=' + sch + ';S.browser_fallback_url=' + encodeURIComponent(base) + ';end';
+  return '';
+}
+function iabBase() { var c = pendingCode || S.team; return location.origin + location.pathname + (c ? '#t=' + c : ''); }
+function iabNavigate(url, how) {
+  try { if (typeof window.__ccNavigate === 'function') { window.__ccNavigate(url, how); return; } } catch (e) {}      // test hook
+  try {
+    if (how === 'frame') {                     // hidden frame: if the app does not understand the link, nothing visible happens
+      var f = document.createElement('iframe'); f.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden'; f.setAttribute('aria-hidden', 'true');
+      f.src = url; document.body.appendChild(f); setTimeout(function () { try { f.remove(); } catch (e) {} }, 4000);
+    } else { location.href = url; }
+  } catch (e) {}
+}
+function iabHandoff(auto) {
+  if (!IAB) return;
+  var u = buildHandoff(IAB.os, iabBase()); if (!u) return;
+  iabNavigate(u, auto && IAB.os === 'android' ? 'frame' : 'main');
+}
+function iabAutoTry() {                        // once per tab session, only in Instagram and Facebook (where this is known to be used)
+  if (!iabBlocking() || !/^(Instagram|Facebook)/.test(IAB.name)) return;
+  var done = false;
+  try { done = sessionStorage.getItem('ecomsoc-iab-tried') === '1'; sessionStorage.setItem('ecomsoc-iab-tried', '1'); } catch (e) {}
+  if (done) return;
+  setTimeout(function () { if (iabBlocking()) iabHandoff(true); }, 350);
+}
 
 /* ---------- QR ---------- */
 function qrSvg(px, text, id) {
@@ -791,13 +823,14 @@ function screenIab() {
     '<h1 class="title" style="margin-top:12px">Open this in ' + br + '</h1>' +
     '<p class="sub" style="margin-top:6px">This built-in browser cannot work offline, can lose your tallies and cannot be added to your Home Screen.</p></div>' +
     '<ol class="how">' +
-      (ios ? '<li><span>Tap the <b>\u22EF</b> menu or the <b>compass</b> icon (bottom right or top right).</span></li><li><span>Choose <b>Open in Safari</b>.</span></li>'
-           : '<li><span>Tap the <b>\u22EE</b> menu (top right).</span></li><li><span>Choose <b>Open in Chrome</b> or <b>Open in browser</b>.</span></li>') +
-      '<li><span>Or tap <b>Copy link</b> below, open ' + br + ' and paste it in the address bar.</span></li>' +
+      '<li><span>Tap <b>Open in ' + (ios ? 'Safari' : 'browser') + '</b> below. Say yes if ' + esc(IAB.name) + ' asks to leave the app.</span></li>' +
+      (ios ? '<li><span>Nothing happened? Tap the <b>\u22EF</b> menu or the <b>compass</b> icon, then <b>Open in Safari</b>.</span></li>'
+           : '<li><span>Nothing happened? Tap the <b>\u22EE</b> menu (top right), then <b>Open in Chrome</b> or <b>Open in browser</b>.</span></li>') +
+      '<li><span>Or tap <b>Copy link</b>, open ' + br + ' and paste it in the address bar.</span></li>' +
     '</ol>' +
     (code ? '<div class="card center"><div class="sub">Your team code</div><div style="font-size:34px;font-weight:900;letter-spacing:.1em">' + esc(fmtTeam(code)) + '</div></div>' : '') +
     '<div class="spacer"></div></main>' +
-    '<footer class="foot"><button class="btn pri" data-act="iab-copy">' + ico('copy') + 'Copy link</button><button class="btn sm" data-act="iab-continue">Continue here anyway</button></footer>';
+    '<footer class="foot"><button class="btn pri" data-act="iab-open">Open in ' + (ios ? 'Safari' : 'browser') + '</button><div class="row"><button class="btn sm" data-act="iab-copy">' + ico('copy') + 'Copy link</button><button class="btn sm" data-act="iab-continue">Continue anyway</button></div></footer>';
 }
 function iabBanner() {
   return IAB && iabAck ? '<button class="banner-warn iabbar" data-act="iab-help">Inside ' + esc(IAB.name) + '\'s browser: open in ' + (IAB.os === 'ios' ? 'Safari' : 'Chrome') + ' for offline mode. Tap for how.</button>' : '';
@@ -1167,6 +1200,7 @@ document.addEventListener('click', function (e) {
       var pc = pendingCode; pendingCode = '';
       if (location.hash) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} }
       view = S.cur ? 'flow' : (SYNC_URL && !S.team && !S.skipJoin && !pc ? 'join' : 'home'); render(); applyJoinCode(pc); break; }
+    case 'iab-open': toast('Opening your browser...'); iabHandoff(false); break;
     case 'iab-help': view = 'iab'; render(); break;
   }
 });
@@ -1219,7 +1253,7 @@ window.addEventListener('storage', function (e) {
 });
 
 /* test and debugging hooks */
-window.CC = { detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
+window.CC = { buildHandoff: buildHandoff, detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
   commit: commit, remaining: remaining, totals: totals, syncState: syncState, net: net, tick: tick, pollNow: pollNow, syncOn: syncOn, unsent: unsent };
 
 /* join link: https://.../#t=ABCD-EFGH (the code never goes to the web host, it stays after the #).
@@ -1246,6 +1280,7 @@ if (iabBlocking() && !S.cur) view = 'iab';
 else if (SYNC_URL && !S.team && !S.skipJoin && !S.cur) view = 'join';
 render();
 started = true;
+iabAutoTry();
 wakeSync();
 })();
 </script>

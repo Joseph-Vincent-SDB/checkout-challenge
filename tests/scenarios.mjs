@@ -297,6 +297,80 @@ if (want('9b')) {
   await reset();
 }
 
+/* ---------- 9c. handing off from Instagram's browser to the default browser ---------- */
+if (want('9c')) {
+  const IGI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21F90 Instagram 340.0.0.19.108 (iPhone14,5; iOS 17_5; en_AU; en-AU; scale=3.00; 1170x2532; 640110043)';
+  const IGA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP2A.240705.005; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.122 Mobile Safari/537.36 Instagram 340.0.0.28.106 Android (34/14; 420dpi; 1080x2400; Google/google; Pixel 8; shiba; shiba; en_AU; 640110043)';
+  const TT = 'Mozilla/5.0 (Linux; Android 14; SM-S918B Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.122 Mobile Safari/537.36 trill_340000 BytedanceWebview/d8a21c6';
+  const SAF = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+  const hook = () => { window.__ccNavigate = (u, how) => { (window.__navs = window.__navs || []).push([u, how]); }; };
+  const navs = p => p.evaluate(() => window.__navs || []);
+  const pure = await phone('', { join: false });
+  const urls = await pure.evaluate(() => ({
+    ios: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA'),
+    iosPlain: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/'),
+    iosHttp: CC.buildHandoff('ios', 'http://127.0.0.1:8080/'),
+    android: CC.buildHandoff('android', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA'),
+    other: CC.buildHandoff('other', 'https://x.test/')
+  }));
+  check('iPhone handoff link is x-safari-https://... and keeps the team code', urls.ios === 'x-safari-https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA' && urls.iosPlain === 'x-safari-https://joseph-vincent-sdb.github.io/checkout-challenge/' && urls.iosHttp === 'x-safari-http://127.0.0.1:8080/', JSON.stringify(urls.ios));
+  check('Android handoff link is an intent:// link for the default browser (no package forced) and keeps the team code', /^intent:\/\/joseph-vincent-sdb\.github\.io\/checkout-challenge\/#t=6TRDH2ZA#Intent;scheme=https;S\.browser_fallback_url=https%3A%2F%2Fjoseph-vincent-sdb\.github\.io%2Fcheckout-challenge%2F%236TRDH2ZA;end$/.test(urls.android.replace('%23t%3D','%236TRDH2ZA')) || (urls.android.startsWith('intent://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA#Intent;scheme=https;') && urls.android.endsWith(';end') && !/package=/.test(urls.android)), urls.android);
+  check('Unknown systems get no handoff link', urls.other === '');
+  await pure.ctx.close(); phones.pop();
+
+  // iPhone Instagram: tries once by itself (main frame), not again after a reload, and the button tries again
+  const I = await phone('', { join: false, ctx: { userAgent: IGI }, init: hook }); await I.evaluate(() => sessionStorage.clear()); await I.goto('about:blank'); await I.goto(BASE + '#t=' + TEAM); await I.waitForSelector('#app *'); await wait(1200);
+  const n1 = await navs(I);
+  check('Instagram on iPhone: the link tries to open Safari by itself, once', n1.length === 1 && n1[0][1] === 'main' && n1[0][0].startsWith('x-safari-http'), JSON.stringify(n1));
+  check('...with the team code inside the link it hands over', n1.length === 1 && n1[0][0].endsWith('#t=' + TEAM));
+  check('...and the guide screen is still there as the fallback', /Open this in Safari/.test(await I.innerText('#app')) && !!(await I.$('[data-act=iab-open]')));
+  await I.reload(); await I.waitForSelector('#app *'); await wait(1200);
+  check('After a reload in the same tab it does not try again by itself (no loops)', (await navs(I)).length === 0);
+  await tap(I, '[data-act=iab-open]'); await wait(300);
+  const n2 = await navs(I);
+  check('The "Open in Safari" button tries again on tap', n2.length === 1 && n2[0][0].startsWith('x-safari-http') && n2[0][1] === 'main', JSON.stringify(n2));
+  await I.setViewportSize({ width: 320, height: 568 }); await wait(200);
+  const lay = await I.evaluate(() => { const bad = []; if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('hscroll'); document.querySelectorAll('#app button').forEach(b => { const r = b.getBoundingClientRect(); if (r.width && (r.height < 47.5 || r.width < 47.5)) bad.push(b.textContent.trim().slice(0, 12)); }); return bad.join(','); });
+  check('The guide with its three buttons fits the smallest phone, all buttons 48 px', lay === '', lay);
+  check('No JS errors', noErr([I]), errs([I])); await I.ctx.close(); phones.pop();
+
+  // Android Instagram: automatic try goes through a hidden frame (cannot break the page), the button uses the main window
+  const A = await phone('', { join: false, ctx: { userAgent: IGA }, init: hook }); await A.evaluate(() => sessionStorage.clear()); await A.goto('about:blank'); await A.goto(BASE + '#t=' + TEAM); await A.waitForSelector('#app *'); await wait(1200);
+  const an = await navs(A);
+  check('Instagram on Android: tries by itself once, through a hidden frame so the page can never be replaced by an error', an.length === 1 && an[0][1] === 'frame' && an[0][0].startsWith('intent://') && an[0][0].includes('#t=' + TEAM + '#Intent;scheme=http;') && !/package=/.test(an[0][0]), JSON.stringify(an).slice(0, 220));
+  await tap(A, '[data-act=iab-open]'); await wait(300);
+  const an2 = await navs(A);
+  check('...and the button uses the main window (needed by some apps)', an2.length === 2 && an2[1][1] === 'main');
+  check('No JS errors', noErr([A]), errs([A])); await A.ctx.close(); phones.pop();
+
+  // with nothing stubbed: if the app does not understand the link, the guide must stay on screen and nothing may break
+  for (const [label, ua] of [['iPhone', IGI], ['Android', IGA]]) {
+    const R = await phone('', { join: false, ctx: { userAgent: ua } }); await R.evaluate(() => sessionStorage.clear()); await R.goto('about:blank'); await R.goto(BASE + '#t=' + TEAM); await R.waitForSelector('#app *'); await wait(1800);
+    const still1 = /Open this in (Safari|Chrome)/.test(await R.innerText('#app')) && !!(await R.$('[data-act=iab-open]'));
+    await R.click('[data-act=iab-open]').catch(() => {}); await wait(1500);
+    const still2 = await R.evaluate(() => /Open this in (Safari|Chrome)/.test(document.body.innerText) && !!document.querySelector('[data-act=iab-open]'));
+    check(`Instagram on ${label}, real navigation with nothing stubbed: the guide is still there after the automatic try and after tapping the button`, still1 && still2, `auto=${still1} tap=${still2} url=${R.url().slice(0, 60)}`);
+    check(`...and no errors`, noErr([R]), errs([R])); await R.ctx.close(); phones.pop();
+  }
+  // other in-app browsers: no automatic attempt (unknown behaviour), but the button works
+  const T = await phone('', { join: false, ctx: { userAgent: TT }, init: hook }); await T.goto('about:blank'); await T.goto(BASE + '#t=' + TEAM); await T.waitForSelector('#app *'); await wait(1200);
+  check('TikTok: no automatic attempt', (await navs(T)).length === 0);
+  await tap(T, '[data-act=iab-open]'); await wait(300);
+  check('TikTok: the button still tries', (await navs(T)).length === 1);
+  await T.ctx.close(); phones.pop();
+
+  // choosing "Continue anyway" ends the attempts; normal browsers are never touched
+  const C = await phone('', { join: false, ctx: { userAgent: IGI }, init: hook }); await C.goto('about:blank'); await C.goto(BASE + '#t=' + TEAM); await C.waitForSelector('#app *'); await wait(900);
+  await tap(C, '[data-act=iab-continue]'); await wait(300);
+  await C.evaluate(() => sessionStorage.clear()); await C.reload(); await C.waitForSelector('#app *'); await wait(1200);
+  check('After "Continue anyway" it never tries to leave again, even in a new session', (await navs(C)).length === 0 && !!(await C.$('[data-act=next]')));
+  await C.ctx.close(); phones.pop();
+  const N = await phone('', { join: false, ctx: { userAgent: SAF }, init: hook }); await N.goto('about:blank'); await N.goto(BASE + '#t=' + TEAM); await N.waitForSelector('#app *'); await wait(1200);
+  check('A normal browser (Safari) is never redirected or warned, and joins the team', (await navs(N)).length === 0 && !(await N.$('[data-act=iab-open]')) && await until(async () => (await N.evaluate(() => CC.state().team)) === TEAM, 6000));
+  await N.ctx.close(); phones.pop();
+  await reset();
+}
+
 /* ---------- 10. monkey test: random chaos ---------- */
 if (want('10')) {
   const A = await phone('Monkey A'), B = await phone('Monkey B'); await until(async () => (await st(A)) === 'ok' && (await st(B)) === 'ok');
