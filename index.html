@@ -659,7 +659,11 @@ try {
     navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadController) { pendingReload = true; maybeReload(); } });
   }
 } catch (e) {}
-function maybeReload() { if (pendingReload && view === 'home' && !S.cur && !modal) { pendingReload = false; try { location.reload(); } catch (e) {} } }
+function maybeReload() {       // only when nothing can be lost: idle on Home, or on the Join screen with nothing typed
+  if (!pendingReload || S.cur || modal) return;
+  var idleHome = view === 'home', idleJoin = view === 'join' && !(($('#code') || {}).value || '').trim();
+  if (idleHome || idleJoin) { pendingReload = false; try { location.reload(); } catch (e) {} }
+}
 setInterval(maybeReload, 3000);
 
 /* ---------- QR ---------- */
