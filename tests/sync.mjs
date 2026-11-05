@@ -285,6 +285,10 @@ if (mock) {   // fault injection needs the mock database
   check('Opening a join link on a phone that already has tallies asks before clearing them', await until(async () => /clear this phone/.test(await T.innerText('.sheet').catch(() => '')), 4000));
   await tap(T, '[data-act=join-yes]');
   check('After confirming, the phone is on the team with a clean slate', await until(async () => (await own(T)).served === 0 && /Shared/.test(await syncText(T)), 8000));
+  // join link opened while the app is already open (same page, only the # changes): must still join
+  const H = await phone('', { join: false }); await tap(H, '[data-act=join-skip]'); await wait(300);
+  await H.evaluate(code => { location.hash = '#t=' + code; }, TEAM);
+  check('A join link opened while the app is already open (only the # changes) still joins', await until(async () => (await H.evaluate(() => CC.state().team)) === TEAM && /Shared/.test(await syncText(H)), 8000) && new URL(H.url()).hash === '', (await syncText(H)).replace(/\n/g, ' '));
   // Show join QR
   await tap(T, '[data-act=summary]'); await tap(T, '[data-act=share]');
   check('Show join QR displays a QR code and the team code', !!(await T.$('#qrjoin')) && (await T.innerText('.sheet')).includes(fmtCode(TEAM)));

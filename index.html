@@ -1146,17 +1146,22 @@ window.addEventListener('resize', function () { clearTimeout(rz); rz = setTimeou
 window.CC = { QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
   commit: commit, remaining: remaining, totals: totals, syncState: syncState, net: net, tick: tick, pollNow: pollNow, syncOn: syncOn, unsent: unsent };
 
-/* join link: https://.../#t=ABCD-EFGH (the code never goes to the web host, it stays after the #) */
-(function handleHash() {
+/* join link: https://.../#t=ABCD-EFGH (the code never goes to the web host, it stays after the #).
+   Handled at load AND whenever the address changes while the app is already open (for example a scanned QR). */
+var started = false;
+function handleHash() {
   var code = parseTeam(location.hash || '');
   if (location.hash) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} }
-  if (code && SYNC_URL && code !== S.team) {
-    if (!hasTallies()) { joinTeam(code); }
-    else setTimeout(function () { doJoin(code); }, 300);
-  }
-})();
+  if (!(code && SYNC_URL && code !== S.team)) return;
+  if (hasTallies()) { setTimeout(function () { doJoin(code); }, 300); return; }
+  joinTeam(code);
+  if (started) { toast('Joined team ' + fmtTeam(code)); view = S.cur ? 'flow' : 'home'; render(); }
+}
+window.addEventListener('hashchange', handleHash);
+handleHash();
 if (SYNC_URL && !S.team && !S.skipJoin && !S.cur) view = 'join';
 render();
+started = true;
 wakeSync();
 })();
 </script>

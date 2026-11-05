@@ -1,0 +1,20 @@
+{
+  "passed": 10,
+  "total": 10,
+  "failed": [],
+  "sum": {
+    "customers": 206,
+    "follows": 135,
+    "already": 71,
+    "correct": 166,
+    "wrong": 84,
+    "retries": 48,
+    "skips": 24,
+    "hot": 176,
+    "full": 74,
+    "won": 166,
+    "lost": 36,
+    "served": 80
+  },
+  "expectedRem": -1
+}
