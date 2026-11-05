@@ -273,7 +273,7 @@ var CONFIG = {
   rrp: 15,                 // price tag decoration only. The food is always free.
   discountLabel: '90% OFF',
   dropMs: 950,             // length of the deal drop moment
-  syncUrl: '',             // Firebase Realtime Database URL that shares the food count between phones (see README)
+  syncUrl: 'https://ecomsoc-checkout-7k4q-default-rtdb.asia-southeast1.firebasedatabase.app',             // Firebase Realtime Database URL that shares the food count between phones (see README)
   pollMs: 2000,            // how often each phone checks the team's numbers
   heartbeatMs: 15000       // how often an idle phone says it is still online
 };
@@ -315,7 +315,7 @@ var COUNTERS = ['customers', 'follows', 'already', 'correct', 'wrong', 'retries'
 var CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no I, O, 0, 1
 var PROFILE_URL = 'https://www.instagram.com/' + CONFIG.handle + '/';
 var SYNC_URL = (CONFIG.syncUrl || '');
-try { SYNC_URL = localStorage.getItem(URLKEY) || SYNC_URL; } catch (e) {}
+try { var ov = localStorage.getItem(URLKEY); if (ov === 'off') SYNC_URL = ''; else if (ov) SYNC_URL = ov; } catch (e) {}   // override for tests: 'off' or another URL
 SYNC_URL = SYNC_URL.replace(/\/+$/, '');
 var REDUCED = false;
 try { REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
@@ -461,7 +461,7 @@ function drawQuestion() {
    - Works offline: changes queue (S.rev vs S.acked) and send when back online.
    ============================================================ */
 var net = { pollOk: 0, pollFails: 0, pushFails: 0, pushing: false, polling: false, pushStart: 0, pollStart: 0,
-  nextPoll: 0, nextPush: 0, lastPush: 0, pollErr: '', pollMsg: '', pushErr: '', pushMsg: '', seen: {}, pollPromise: null, metaPending: false, metaTimer: null, metaWant: null };
+  nextPoll: 0, nextPush: 0, lastPush: 0, pollErr: '', pollMsg: '', pushErr: '', pushMsg: '', seen: {}, pollPromise: null, metaPending: false, metaTimer: null, metaWant: null, metaBusy: false };
 function syncOn() { return !!(SYNC_URL && S.team); }
 function base() { return SYNC_URL + '/events/' + S.team; }
 function unsent() { return Math.max(0, S.rev - S.acked); }
@@ -587,16 +587,26 @@ async function writeMeta(epoch, stock) {
   await http('PUT', base() + '/meta.json?print=silent', metaBody(epoch, stock));
 }
 function changeStart(delta) {
-  var want = Math.max(0, Math.min(5000, (net.metaWant === null ? S.startStock : net.metaWant) + delta));
+  var cur0 = net.metaWant === null ? S.startStock : net.metaWant;
+  var want = Math.max(0, Math.min(5000, cur0 + delta));
   net.metaWant = want; S.startStock = want; save(); liveUpdate();
   if (!syncOn()) { net.metaWant = null; return; }
-  net.metaPending = true; clearTimeout(net.metaTimer);
-  net.metaTimer = setTimeout(async function () {
-    var w = net.metaWant;
-    try { await writeMeta(S.epoch, w); net.metaPending = false; net.metaWant = null; }
-    catch (e) { net.metaPending = false; net.metaWant = null; toast('No internet: shared total not changed'); net.nextPoll = 0; }
-    liveUpdate(); wakeSync();
-  }, 500);
+  net.metaPending = true; clearTimeout(net.metaTimer); net.metaTimer = setTimeout(flushMeta, 400);
+}
+/* sends the latest wanted total, one write at a time, so a slow reply can never overwrite a newer tap */
+async function flushMeta() {
+  if (net.metaBusy) { net.metaTimer = setTimeout(flushMeta, 250); return; }
+  net.metaBusy = true;
+  try {
+    while (net.metaWant !== null) {
+      var w = net.metaWant;
+      await writeMeta(S.epoch, w);
+      if (net.metaWant === w) net.metaWant = null;
+    }
+    net.metaPending = false;
+  } catch (e) { net.metaWant = null; net.metaPending = false; toast('No internet: shared total not changed'); net.nextPoll = 0; }
+  finally { net.metaBusy = false; }
+  liveUpdate(); wakeSync();
 }
 async function resetAll() {
   if (!syncOn()) { localReset(); return; }

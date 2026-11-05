@@ -32,6 +32,9 @@ function check(name, ok, detail = '') { results.push({ name, ok: !!ok, detail })
 
 /* ---------- helpers ---------- */
 const browser = await chromium.launch(process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
+// every phone in this suite runs on its own (sharing switched off), whatever the app's default settings
+const _newContext = browser.newContext.bind(browser);
+browser.newContext = async o => { const c = await _newContext(o); await c.addInitScript(() => { try { localStorage.setItem('ecomsoc-sync-url', 'off'); } catch (e) {} }); return c; };
 function devOpts(name) {
   const d = { ...devices[name] }; delete d.defaultBrowserType; return d;
 }
@@ -315,7 +318,8 @@ for (const name of DEVICES) {
    ================================================================ */
 {
   const page = await newPage(SE, () => { Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked'); } }); });
-  await page.goto(BASE); await page.waitForSelector('[data-act=next]');
+  await page.goto(BASE); await page.waitForSelector('[data-act=next], [data-act=join-skip]');
+  if (await page.$('[data-act=join-skip]')) { await wait(300); await page.click('[data-act=join-skip]'); await page.waitForSelector('[data-act=next]'); }   // sharing is configured but storage is blocked, so this phone runs on its own
   check('Storage blocked: app loads and shows a warning', /Storage is blocked/.test(await page.innerText('body')));
   await startCustomer(page); await answer(page, true); await page.waitForSelector('#result'); await tap(page, '[data-act=serve]'); await page.waitForSelector('[data-act=next]');
   check('Storage blocked: full flow still works', (await rem(page)) === 79 && page.errors.length === 0, page.errors.join(' | '));

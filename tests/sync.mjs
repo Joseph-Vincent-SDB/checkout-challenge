@@ -19,7 +19,7 @@ const web = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache' }); fs.createReadStream(f).pipe(res);
 });
 await new Promise(r => web.listen(0, '127.0.0.1', r));
-const BASE = `http://127.0.0.1:${web.address().port}/`;
+const BASE = process.env.BASE_URL || `http://127.0.0.1:${web.address().port}/`;   // BASE_URL=https://... tests a deployed copy
 const mock = LIVE ? null : await startMock();
 const DB_URL = LIVE ? process.env.SYNC_URL : mock.url;
 const browser = await chromium.launch(process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
@@ -35,7 +35,7 @@ let TEAM = newTeam();
 const phones = [];
 async function phone(label, o = {}) {
   const ctx = await browser.newContext({ ...D, permissions: ['clipboard-read', 'clipboard-write'] });
-  await ctx.addInitScript(([k, u]) => { try { localStorage.setItem(k, u); } catch (e) {} }, ['ecomsoc-sync-url', DB_URL]);
+  if (!process.env.NO_URL_OVERRIDE) await ctx.addInitScript(([k, u]) => { try { localStorage.setItem(k, u); } catch (e) {} }, ['ecomsoc-sync-url', DB_URL]);   // NO_URL_OVERRIDE=1: use the URL built into the app
   const page = await ctx.newPage(); page.ctx = ctx; page.errors = [];
   page.on('pageerror', e => page.errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|net::ERR|Access-Control/.test(m.text())) page.errors.push('console: ' + m.text()); });
@@ -128,11 +128,11 @@ teamsUsed.add(TEAM);
   check('A can run a whole customer offline', (await own(A)).served === 4 && (await own(A)).customers === 4, JSON.stringify(await own(A)));
   await fakeServe(B, 1);
   await wait(3500);
-  check('B (online) does not yet see A\'s offline serves', (await rem(B)) === 80 - 3 && (await cloudServed()) === 3, 'B=' + await rem(B) + ' cloud=' + cloudServed());
+  check('B (online) does not yet see A\'s offline serves', (await rem(B)) === 80 - 3 && (await cloudServed()) === 3, 'B=' + await rem(B) + ' cloud=' + await cloudServed());
   await A.ctx.setOffline(false);
   const want = 80 - 4 - 3;
   check('Back online: A and B both show the exact total within 8 s', await until(async () => (await rem(A)) === want && (await rem(B)) === want, 8000), `A=${await rem(A)} B=${await rem(B)} want=${want}`);
-  check('Cloud total matches (4 on A + 3 on B), nothing doubled', (await cloudServed()) === 7, 'cloud=' + cloudServed());
+  check('Cloud total matches (4 on A + 3 on B), nothing doubled', (await cloudServed()) === 7, 'cloud=' + await cloudServed());
   check('A has no unsent changes and goes green', await until(async () => (await unsent(A)) === 0 && (await st(A)) === 'ok', 6000));
   check('No JS errors while offline and back', A.errors.length + B.errors.length === 0, A.errors.concat(B.errors).join(' | '));
   await reset();
@@ -402,6 +402,20 @@ if (mock) {   // fault injection needs the mock database
   await until(async () => (await st(T)) === 'ok' && !(await T.$('.sheet')), 8000);
   await fakeServe(T, 2);
   check('Leaving a team and re-joining it works (no "Sharing problem"), old serves still counted', await until(async () => (await st(T)) === 'ok' && (await unsent(T)) === 0 && (await cloudServed()) === 5, 10000), `state=${await st(T)} cloud=${(await cloudServed())}`);
+  await reset();
+}
+
+/* ===================== 15. rapid taps on the shared total over a slow network ===================== */
+if (mock) {   // regression: a slow reply to the first tap must not overwrite the second tap
+  const A = await phone('Phone A'), B = await phone('Phone B');
+  await until(async () => (await st(A)) === 'ok' && (await st(B)) === 'ok');
+  mock.ctl.delayMs = 700;
+  await tap(A, '[data-act=summary]'); await A.waitForSelector('[data-act="start+"]'); await wait(350);
+  for (let i = 0; i < 4; i++) { await A.click('[data-act="start+"]'); await wait(520); }
+  mock.ctl.delayMs = 0;
+  check('Four +5 taps over a slow network add exactly 20 for every phone', await until(async () => (await rem(A)) === 100 && (await rem(B)) === 100, 15000), `A=${await rem(A)} B=${await rem(B)}`);
+  check('Total food at start in the database is 100', ((await cloudMeta()) || {}).startStock === 100);
+  check('No JS errors', A.errors.length + B.errors.length === 0, A.errors.concat(B.errors).join(' | '));
   await reset();
 }
 
