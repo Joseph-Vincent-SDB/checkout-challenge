@@ -1,0 +1,11 @@
+{
+  "name": "checkout-challenge-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node run.mjs" },
+  "devDependencies": {
+    "jsqr": "^1.4.0",
+    "playwright": "^1.50.0",
+    "pngjs": "^7.0.0"
+  }
+}

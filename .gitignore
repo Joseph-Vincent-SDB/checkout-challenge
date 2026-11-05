@@ -1,0 +1,5 @@
+node_modules/
+tests/node_modules/
+tests/last-run.json
+.DS_Store
+tests/screenshots/

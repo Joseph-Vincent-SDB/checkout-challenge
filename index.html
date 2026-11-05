@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<title>Checkout Challenge</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<meta name="color-scheme" content="light">
+<meta name="description" content="Checkout Challenge: volunteer app for the UNSW E-Commerce Society stall.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Checkout">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+/* ============================================================
+   THEME: change colours here. Light, high contrast, for sunlight.
+   ============================================================ */
+:root{
+  --bg:#FFFBF0;
+  --card:#FFFFFF;
+  --ink:#111111;
+  --ink2:#3A3A3A;
+  --gold:#F5B800;
+  --gold-soft:#FFEFB8;
+  --hot:#C8001E;
+  --full:#E4E0D3;
+  --ok:#0A6B34;
+  --ok-soft:#DDF3E4;
+  --bad:#8B1A1A;
+  --bad-soft:#FBE4E4;
+  --warn:#FFB000;
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-l:env(safe-area-inset-left,0px);
+  --safe-r:env(safe-area-inset-right,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);overscroll-behavior:none;overflow:hidden}
+body{
+  font:500 18px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-text-size-adjust:100%;text-size-adjust:100%;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+}
+input,textarea{-webkit-user-select:text;user-select:text}
+button{font:inherit;color:inherit;touch-action:manipulation;-webkit-user-select:none;user-select:none;cursor:pointer}
+svg.i{width:1.2em;height:1.2em;flex:none;vertical-align:-0.2em}
+#app{
+  height:100vh;height:100dvh;display:flex;flex-direction:column;
+  padding-left:var(--safe-l);padding-right:var(--safe-r);
+  max-width:560px;margin:0 auto;
+}
+.main{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:8px 16px 8px;display:flex;flex-direction:column;gap:12px}
+.foot{flex:none;padding:8px 16px max(14px,var(--safe-b));display:flex;flex-direction:column;gap:10px}
+
+/* top bar */
+.bar{flex:none;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:max(8px,var(--safe-t)) 12px 6px}
+.bar .mid{font-weight:800;font-size:16px;text-transform:uppercase;letter-spacing:.04em;text-align:center;color:var(--ink2)}
+.barbtn{min-height:48px;min-width:48px;padding:6px 12px;border:2px solid var(--ink);border-radius:12px;background:#fff;font-weight:800;font-size:17px;display:inline-flex;align-items:center;gap:6px;justify-self:start}
+.barbtn.r{justify-self:end}
+.barbtn:active{background:var(--gold-soft)}
+.steps{flex:none;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:0 16px}
+.steps i{height:7px;border-radius:4px;background:#D9D4C4}
+.steps i.on{background:var(--ink)}
+.steps i.done{background:var(--gold)}
+
+/* buttons */
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:56px;width:100%;padding:12px 18px;border:3px solid var(--ink);border-radius:16px;background:#fff;color:var(--ink);font-weight:800;font-size:20px;line-height:1.1;text-align:center;box-shadow:0 4px 0 var(--ink);transition:transform .06s}
+.btn:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.btn.pri{background:var(--gold)}
+.btn.big{min-height:88px;font-size:28px;border-radius:20px}
+.btn.sm{min-height:48px;font-size:18px;box-shadow:0 3px 0 var(--ink)}
+.btn.ok{background:var(--ok);color:#fff;border-color:var(--ok);box-shadow:0 4px 0 #06431f}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.row{display:flex;gap:10px}
+.row>*{flex:1}
+.txtbtn{min-height:48px;background:none;border:0;font-weight:800;font-size:18px;text-decoration:underline;text-underline-offset:4px;padding:8px 12px}
+
+/* common bits */
+h1,h2,h3,p{margin:0}
+.title{font-weight:900;font-size:30px;line-height:1.05;letter-spacing:-.01em}
+.sub{color:var(--ink2);font-size:18px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;border:2px solid var(--ink);background:#fff;font-weight:700;font-size:14px;line-height:1.2}
+.pill.good{background:var(--ok-soft);border-color:var(--ok);color:#064d24}
+.pill.warn{background:var(--gold-soft)}
+.card{background:var(--card);border:3px solid var(--ink);border-radius:18px;padding:14px}
+
+/* home */
+.brand{display:flex;align-items:center;gap:12px;padding:max(10px,var(--safe-t)) 16px 0}
+.brand img{width:52px;height:52px;border-radius:50%;border:2px solid var(--ink);display:block;background:#FAF8F2}
+.brand b{display:block;font-size:22px;font-weight:900;line-height:1.05}
+.brand span{font-size:14px;color:var(--ink2);font-weight:600}
+.stock{border:3px solid var(--ink);border-radius:20px;padding:12px 16px;background:var(--gold-soft);display:flex;align-items:center;gap:14px}
+.stock .n{font-size:56px;font-weight:900;line-height:1;min-width:2ch;font-variant-numeric:tabular-nums}
+.stock .l{font-weight:800;font-size:18px;line-height:1.15}
+.stock .l small{display:block;font-weight:600;font-size:15px;color:var(--ink2)}
+.stock.low{background:var(--warn)}
+.stock.out{background:var(--ink);color:#fff}
+.stock.out .l small{color:#ddd}
+.tallies{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tally{border:2px solid var(--ink);border-radius:14px;background:#fff;text-align:center;padding:6px 2px}
+.tally b{display:block;font-size:26px;line-height:1.1;font-weight:900;font-variant-numeric:tabular-nums}
+.tally span{font-size:13px;font-weight:700;color:var(--ink2)}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.banner-warn{background:var(--bad-soft);border:2px solid var(--bad);border-radius:12px;padding:8px 12px;font-size:15px;font-weight:600;color:#5a0f0f}
+.spacer{flex:1 1 auto}
+
+/* follow */
+.qrcard{align-self:center;background:#fff;border:3px solid var(--ink);border-radius:18px;padding:8px;line-height:0}
+.qrcard svg{display:block}
+.handle{font-size:clamp(26px,8vw,34px);font-weight:900;text-align:center;letter-spacing:-.01em;word-break:break-all}
+.center{text-align:center}
+
+/* deal tags */
+.deal{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 14px;border-radius:14px;font-weight:900;font-size:20px;line-height:1.1;border:3px solid var(--ink)}
+.deal.hot{background:var(--hot);color:#fff;border-color:#7d0012}
+.deal.hot s{opacity:.95;font-weight:700;text-decoration-thickness:3px}
+.deal .off{background:var(--gold);color:var(--ink);border-radius:8px;padding:2px 8px;font-size:18px}
+.deal.full{background:var(--full);color:var(--ink);border-style:dashed}
+.deal.full small{font-weight:700;font-size:16px;color:var(--ink2)}
+.deal .lbl{display:inline-flex;align-items:center;gap:6px;letter-spacing:.02em}
+.deal.pop{animation:pop .32s cubic-bezier(.2,1.5,.4,1)}
+@keyframes pop{from{transform:scale(.7) rotate(-3deg);opacity:0}to{transform:none;opacity:1}}
+
+/* reveal + drop */
+.mystery{align-self:center;width:min(78%,290px);aspect-ratio:1/1;border:4px dashed var(--ink);border-radius:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:#fff;transform:rotate(-2deg)}
+.mystery b{font-size:76px;line-height:1;font-weight:900}
+.mystery span{font-weight:800;font-size:18px}
+.scanbox{position:relative;align-self:center;width:min(86%,320px);height:150px;border:3px solid var(--ink);border-radius:18px;background:#fff;overflow:hidden;animation:scanfade .01s linear .46s forwards}
+.scanbox .bc{position:absolute;inset:18px 22px;background:repeating-linear-gradient(90deg,#111 0 4px,#fff 4px 7px,#111 7px 9px,#fff 9px 14px,#111 14px 20px,#fff 20px 23px)}
+.scanbox .ln{position:absolute;left:0;right:0;height:5px;background:var(--hot);box-shadow:0 0 12px 3px rgba(200,0,30,.55);top:6%;animation:scan .42s ease-in-out both}
+@keyframes scan{0%{top:6%}50%{top:90%}100%{top:6%}}
+@keyframes scanfade{to{opacity:0;height:0;margin:-6px 0;border-width:0}}
+.bigtag{align-self:center;width:min(92%,340px);border-radius:24px;padding:22px 18px;text-align:center;border:4px solid var(--ink);animation:stamp .34s cubic-bezier(.2,1.6,.4,1) .45s both}
+.bigtag .t1{font-size:clamp(38px,12vw,52px);font-weight:900;line-height:1;letter-spacing:.01em}
+.bigtag .t2{margin-top:10px;font-size:30px;font-weight:800;display:flex;justify-content:center;align-items:center;gap:12px;flex-wrap:wrap}
+.bigtag .t3{margin-top:6px;font-size:20px;font-weight:700}
+.bigtag.hot{background:var(--hot);color:#fff;border-color:#7d0012}
+.bigtag.hot .off{background:var(--gold);color:var(--ink);border-radius:10px;padding:2px 12px}
+.bigtag.hot s{text-decoration-thickness:4px}
+.bigtag.full{background:var(--full);border-style:dashed}
+@keyframes stamp{0%{transform:scale(1.7) rotate(-8deg);opacity:0}100%{transform:none;opacity:1}}
+.scanmsg{text-align:center;font-weight:800;color:var(--ink2)}
+.dropwrap{flex:1;display:flex;flex-direction:column;justify-content:center;gap:18px}
+.dropwrap.nomo .scanbox{display:none}
+.dropwrap.nomo .bigtag{animation:none}
+
+/* question */
+.qwrap{flex:1 1 auto;display:flex;flex-direction:column;justify-content:space-between;gap:10px;min-height:0}
+.qtext{font-size:clamp(26px,7.4vw,32px);font-weight:900;line-height:1.14;letter-spacing:-.01em}
+.qtext.long{font-size:26px}
+.answers{display:flex;flex-direction:column;gap:8px}
+.ans{display:flex;align-items:center;gap:12px;min-height:56px;width:100%;padding:8px 12px;border:3px solid var(--ink);border-radius:16px;background:#fff;text-align:left;box-shadow:0 3px 0 var(--ink);font-weight:700}
+.ans:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink);background:var(--gold-soft)}
+.ans .ltr{flex:none;width:40px;height:40px;border-radius:12px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:22px}
+.ans .txt{font-size:20px;line-height:1.15;flex:1;min-width:0;overflow-wrap:anywhere}
+.ans .tag{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:15px;font-weight:800}
+.ans.is-right{background:var(--ok);border-color:var(--ok);color:#fff;box-shadow:0 3px 0 #06431f}
+.ans.is-right .ltr{background:#fff;color:var(--ok)}
+.ans.is-wrong{background:var(--bad-soft);border-color:var(--bad);color:#4a0c0c;box-shadow:0 3px 0 var(--bad)}
+.ans.is-wrong .ltr{background:var(--bad)}
+.ans.dim{opacity:.6;box-shadow:none}
+.answers.done .ans{pointer-events:none;min-height:48px;padding-top:4px;padding-bottom:4px}
+.qtext.small{font-size:19px;line-height:1.2}
+
+/* result */
+.banner{display:flex;align-items:center;gap:12px;border-radius:18px;padding:12px 14px;border:3px solid var(--ink)}
+.banner svg.i{width:40px;height:40px}
+.banner b{display:block;font-size:26px;line-height:1.05;font-weight:900;letter-spacing:.01em}
+.banner small{display:block;font-size:16px;font-weight:700;margin-top:2px}
+.banner.ok{background:var(--ok);color:#fff;border-color:#06431f}
+.banner.bad{background:var(--bad-soft);color:#4a0c0c;border-color:var(--bad)}
+.fact{background:var(--gold-soft);border:3px solid var(--ink);border-radius:16px;padding:10px 14px}
+.fact small{display:block;font-weight:900;font-size:14px;text-transform:uppercase;letter-spacing:.06em}
+.fact p{font-size:19px;font-weight:600;margin-top:2px}
+.confetti{position:fixed;left:0;right:0;top:0;height:0;pointer-events:none;z-index:5}
+.confetti i{position:absolute;top:0;left:50%;width:10px;height:16px;border-radius:2px;opacity:0;animation:fall 1.3s ease-out forwards}
+@keyframes fall{0%{opacity:1;transform:translate(0,0) rotate(0)}100%{opacity:0;transform:translate(var(--x),var(--y)) rotate(var(--r))}}
+
+/* summary + help */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{border:2px solid var(--ink);border-radius:14px;background:#fff;padding:8px 12px}
+.stat b{display:block;font-size:28px;font-weight:900;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{font-size:15px;font-weight:700;color:var(--ink2)}
+.stat.hot b{color:var(--hot)}
+.kv{display:flex;justify-content:space-between;gap:12px;font-weight:700;padding:4px 0;border-bottom:1px dashed #bbb}
+.kv:last-child{border:0}
+.stepper{display:flex;align-items:center;gap:10px}
+.stepper .v{flex:1;text-align:center;font-weight:900;font-size:28px;font-variant-numeric:tabular-nums}
+.stepper .btn{width:64px;min-height:52px;padding:6px}
+h2.sec{font-size:20px;font-weight:900;margin-top:6px}
+input.txt{width:100%;min-height:52px;border:3px solid var(--ink);border-radius:14px;padding:8px 12px;font:700 20px/1.2 inherit;background:#fff;color:var(--ink)}
+.hold{position:relative;overflow:hidden;background:#fff;color:var(--bad);border-color:var(--bad);box-shadow:0 4px 0 var(--bad);touch-action:none}
+.hold .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--bad-soft)}
+.hold.go .fill{width:100%;transition:width 2s linear}
+.hold span{position:relative;display:flex;gap:10px;align-items:center}
+ol.how{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;counter-reset:s}
+ol.how li{counter-increment:s;display:flex;gap:12px;align-items:flex-start;font-size:18px;font-weight:600}
+ol.how li::before{content:counter(s);flex:none;width:34px;height:34px;border-radius:50%;background:var(--ink);color:var(--gold);font-weight:900;font-size:19px;display:flex;align-items:center;justify-content:center;margin-top:1px}
+ol.how b{font-weight:900}
+.tip{background:var(--gold-soft);border:2px solid var(--ink);border-radius:14px;padding:10px 12px;font-size:16px;font-weight:600}
+
+/* modal + toast */
+.scrim{position:fixed;inset:0;background:rgba(17,17,17,.6);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.sheet{width:100%;max-width:560px;background:var(--bg);border:3px solid var(--ink);border-bottom:0;border-radius:22px 22px 0 0;padding:18px 16px max(16px,var(--safe-b));display:flex;flex-direction:column;gap:12px}
+.sheet h3{font-size:24px;font-weight:900}
+.sheet textarea{width:100%;height:180px;font:600 16px/1.3 ui-monospace,Menlo,monospace;border:2px solid var(--ink);border-radius:12px;padding:8px}
+.toast{position:fixed;left:50%;bottom:calc(96px + var(--safe-b));transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:99px;font-weight:800;font-size:18px;z-index:30;max-width:90vw;text-align:center}
+
+@media (max-height:600px){
+  .btn.big{min-height:72px}
+  .main{gap:8px}
+  .mystery{width:min(60%,220px)}
+  .mystery b{font-size:56px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001s!important;animation-delay:0s!important;transition:none!important}
+  .confetti{display:none}
+}
+noscript{display:block;padding:24px;font-weight:700}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5 5l9 7-9 7z" fill="currentColor"/><path d="M18 5v14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12.2V4a1 1 0 0 1 1-1h8.2a1 1 0 0 1 .7.3l8.8 8.8a1 1 0 0 1 0 1.4l-7.6 7.6a1 1 0 0 1-1.4 0L3.3 12.9a1 1 0 0 1-.3-.7z" fill="currentColor"/><circle cx="7.5" cy="7.5" r="1.9" fill="var(--hole,#fff)"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><path d="M2.5 4h3l2.3 11h10.5l2-8H6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9.5" cy="19.5" r="1.8" fill="currentColor"/><circle cx="17" cy="19.5" r="1.8" fill="currentColor"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="4" cy="6" r="1.6" fill="currentColor"/><circle cx="4" cy="12" r="1.6" fill="currentColor"/><circle cx="4" cy="18" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M9.2 9.3a2.9 2.9 0 1 1 4.3 2.5c-.9.5-1.5 1.1-1.5 2.2" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="17.4" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M16 5.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9.5A1.5 1.5 0 0 0 5 16h.5" fill="none" stroke="currentColor" stroke-width="2.6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z" fill="currentColor"/><path d="M12 10v5" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="18" r="1.4" fill="#fff"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+<div id="app"><noscript>This app needs JavaScript. Please turn it on in your browser.</noscript></div>
+<div id="layer"></div>
+
+<script src="qr.js"></script>
+<script>
+(function () {
+'use strict';
+
+/* ============================================================
+   SETTINGS: edit these. See README.md.
+   ============================================================ */
+var CONFIG = {
+  handle: 'unswecomsoc',   // Instagram handle, no @
+  defaultStock: 80,        // Thai food serves at the start of the day
+  lowStock: 15,            // warning colour at or below this
+  hotDealPercent: 70,      // chance (0 to 100) that a draw is a HOT DEAL (easy) question
+  retries: 1,              // extra questions after a wrong answer (0 = one shot)
+  rrp: 15,                 // price tag decoration only. The food is always free.
+  discountLabel: '90% OFF',
+  dropMs: 950              // length of the deal drop moment
+};
+
+/* ============================================================
+   QUESTION POOL: edit text here. Keep ids unique.
+   difficulty: "easy" = HOT DEAL, "hard" = FULL PRICE.
+   answer: the letter of the correct option.
+   ============================================================ */
+var QUESTIONS = [
+  {"id": "E01", "difficulty": "easy", "question": "What does the \"e\" in e-commerce stand for?", "options": {"A": "Electronic", "B": "Easy", "C": "Exclusive", "D": "Express"}, "answer": "A", "fact": "That's the \"e\" in our society's name."},
+  {"id": "E02", "difficulty": "easy", "question": "Black Friday is the day after which US holiday?", "options": {"A": "Halloween", "B": "Independence Day", "C": "Thanksgiving", "D": "Labor Day"}, "answer": "C", "fact": "Cyber Monday follows the same weekend."},
+  {"id": "E03", "difficulty": "easy", "question": "What does \"QR\" in QR code stand for?", "options": {"A": "Quality Record", "B": "Quick Response", "C": "Quick Reader", "D": "Query Result"}, "answer": "B", "fact": "Like the QR code you just scanned to follow us."},
+  {"id": "E04", "difficulty": "easy", "question": "What does BNPL stand for?", "options": {"A": "Best New Product Listing", "B": "Bulk Nationwide Parcel Logistics", "C": "Brand New Price List", "D": "Buy Now, Pay Later"}, "answer": "D", "fact": "Afterpay made BNPL famous, and it started in Sydney."},
+  {"id": "E05", "difficulty": "easy", "question": "Which online marketplace is best known for handmade and vintage goods?", "options": {"A": "Temu", "B": "Etsy", "C": "Kogan", "D": "Catch"}, "answer": "B", "fact": "Think custom jewellery, knitted jumpers and vintage clothes."},
+  {"id": "E06", "difficulty": "easy", "question": "Amazon's logo arrow points from which letter to which?", "options": {"A": "A to N", "B": "Z to A", "C": "A to Z", "D": "M to N"}, "answer": "C", "fact": "Amazon sells everything from A to Z, and the arrow doubles as a smile."},
+  {"id": "E07", "difficulty": "easy", "question": "A shopper adds items to their cart, then leaves without paying. What's this called?", "options": {"A": "Cart abandonment", "B": "Window shopping", "C": "Basket drop", "D": "Checkout churn"}, "answer": "A", "fact": "It's why stores email you \"you left something behind\"."},
+  {"id": "E08", "difficulty": "easy", "question": "Amazon first launched selling only which product?", "options": {"A": "Shoes", "B": "Books", "C": "Phones", "D": "Groceries"}, "answer": "B", "fact": "It opened as an online bookseller in July 1995."},
+  {"id": "E09", "difficulty": "easy", "question": "Which company started Singles' Day (11.11), the world's biggest online shopping event?", "options": {"A": "Amazon", "B": "Shopee", "C": "eBay", "D": "Alibaba"}, "answer": "D", "fact": "Alibaba ran the first 11.11 sale in 2009."},
+  {"id": "E10", "difficulty": "easy", "question": "What was the first item ever sold on eBay?", "options": {"A": "Signed baseball", "B": "Used textbook", "C": "A broken laser pointer", "D": "Pez dispenser"}, "answer": "C", "fact": "It sold for $14.83 to a buyer who said he collected broken laser pointers."},
+  {"id": "H01", "difficulty": "hard", "question": "Which payment wallet lets you pay by tapping your iPhone at checkout?", "options": {"A": "Google Wallet", "B": "PayPal", "C": "Afterpay", "D": "Apple Pay"}, "answer": "D", "fact": "Tap to pay uses NFC, short for Near Field Communication."},
+  {"id": "H02", "difficulty": "hard", "question": "A time-limited discount with limited stock is called a...?", "options": {"A": "Flash sale", "B": "Clearance", "C": "Pop-up", "D": "Pre-order"}, "answer": "A", "fact": "Scarcity sells. It's why this Thai food is \"while stocks last\"."},
+  {"id": "H03", "difficulty": "hard", "question": "The online shopping day right after the Black Friday weekend is called...?", "options": {"A": "Prime Day", "B": "Cyber Monday", "C": "Super Sunday", "D": "Click Tuesday"}, "answer": "B", "fact": "It's the online follow-up to the Black Friday weekend."},
+  {"id": "H04", "difficulty": "hard", "question": "What does B2B stand for?", "options": {"A": "Back to Basics", "B": "Buyer-to-Brand", "C": "Business-to-Business", "D": "Bank-to-Bank"}, "answer": "C", "fact": "Businesses selling to other businesses, like a wholesaler supplying a cafe."},
+  {"id": "H05", "difficulty": "hard", "question": "In e-commerce, what does D2C stand for?", "options": {"A": "Direct-to-Consumer", "B": "Data to Cloud", "C": "Deliver to Customer", "D": "Discount 2 Clients"}, "answer": "A", "fact": "Brands selling straight to you online, skipping retailers."},
+  {"id": "H06", "difficulty": "hard", "question": "Afterpay, the \"buy now, pay later\" app, was founded in which Australian city?", "options": {"A": "Melbourne", "B": "Sydney", "C": "Brisbane", "D": "Perth"}, "answer": "B", "fact": "Founded in 2014 by two neighbours, Nick Molnar and Anthony Eisen."},
+  {"id": "H07", "difficulty": "hard", "question": "Shopify was founded in which country?", "options": {"A": "USA", "B": "Germany", "C": "Australia", "D": "Canada"}, "answer": "D", "fact": "Ottawa. The founder grew up in Germany, hence the trap."},
+  {"id": "H08", "difficulty": "hard", "question": "Shopify started because its founders wanted to sell what online?", "options": {"A": "Sneakers", "B": "Books", "C": "Snowboards", "D": "Coffee"}, "answer": "C", "fact": "Their 2004 store was called Snowdevil, and its software became Shopify."},
+  {"id": "H09", "difficulty": "hard", "question": "What was eBay's original name?", "options": {"A": "AuctionWeb", "B": "BidZone", "C": "eMarket", "D": "SellNet"}, "answer": "A", "fact": "It launched in 1995 and was renamed eBay two years later."},
+  {"id": "H10", "difficulty": "hard", "question": "What was Amazon's original company name?", "options": {"A": "Nile.com", "B": "Bookworm", "C": "Prime", "D": "Cadabra"}, "answer": "D", "fact": "As in \"abracadabra\"."}
+];
+/* ============================ END OF EDITABLE DATA ============================ */
+
+var LETTERS = ['A', 'B', 'C', 'D'];
+var KEY = 'ecomsoc-checkout-challenge-v1';
+var PROFILE_URL = 'https://www.instagram.com/' + CONFIG.handle + '/';
+var REDUCED = false;
+try { REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+/* ---------- helpers ---------- */
+function $(s, r) { return (r || document).querySelector(s); }
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function ico(n, cls) { return '<svg class="i ' + (cls || '') + '" aria-hidden="true"><use href="#i-' + n + '"/></svg>'; }
+function qById(id) { for (var i = 0; i < QUESTIONS.length; i++) if (QUESTIONS[i].id === id) return QUESTIONS[i]; return null; }
+function nn(v, d) { return (typeof v === 'number' && isFinite(v) && v >= 0) ? Math.floor(v) : d; }
+function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+
+/* ---------- randomness: crypto.getRandomValues, unbiased ---------- */
+function randInt(n) {
+  try {
+    var buf = new Uint32Array(1), lim = Math.floor(4294967296 / n) * n;
+    do { crypto.getRandomValues(buf); } while (buf[0] >= lim);
+    return buf[0] % n;
+  } catch (e) { return Math.floor(Math.random() * n); }
+}
+function shuffle(arr) {          // Fisher-Yates
+  var a = arr.slice();
+  for (var i = a.length - 1; i > 0; i--) { var j = randInt(i + 1), t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+
+/* ---------- storage (every access wrapped) ---------- */
+var storageOk = true;
+function fresh() {
+  return {
+    v: 1, label: '', startStock: CONFIG.defaultStock, stock: CONFIG.defaultStock,
+    c: { customers: 0, follows: 0, already: 0, correct: 0, wrong: 0, retries: 0, skips: 0, hot: 0, full: 0, won: 0, lost: 0, served: 0 },
+    first: null, last: null, bags: { easy: [], hard: [] }, lastId: null, cur: null
+  };
+}
+function normalise(o) {
+  var f = fresh();
+  if (!o || typeof o !== 'object') return f;
+  f.label = typeof o.label === 'string' ? o.label.slice(0, 24) : '';
+  f.startStock = nn(o.startStock, f.startStock);
+  f.stock = nn(o.stock, f.stock);
+  for (var k in f.c) f.c[k] = nn(o.c && o.c[k], 0);
+  f.first = typeof o.first === 'number' ? o.first : null;
+  f.last = typeof o.last === 'number' ? o.last : null;
+  f.lastId = typeof o.lastId === 'string' ? o.lastId : null;
+  ['easy', 'hard'].forEach(function (d) {
+    var src = o.bags && Array.isArray(o.bags[d]) ? o.bags[d] : [];
+    f.bags[d] = src.filter(function (id) { var q = qById(id); return q && q.difficulty === d; });
+  });
+  var cu = o.cur;
+  if (cu && typeof cu === 'object') {
+    var step = cu.step === 'drop' ? 'question' : cu.step;
+    var ok = ['follow', 'reveal', 'question', 'result'].indexOf(step) >= 0;
+    if (ok && (step === 'question' || step === 'result') && !qById(cu.qid)) ok = false;
+    if (ok) f.cur = { step: step, follow: cu.follow === 'new' || cu.follow === 'already' ? cu.follow : null,
+      qid: cu.qid || null, attempt: nn(cu.attempt, 1) || 1, counted: !!cu.counted, picked: cu.picked || null, ok: !!cu.ok };
+  }
+  return f;
+}
+function load() {
+  try { var raw = localStorage.getItem(KEY); if (raw) return normalise(JSON.parse(raw)); } catch (e) {}
+  return fresh();
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(S)); storageOk = true; } catch (e) { storageOk = false; }
+}
+var S = load();
+(function probe() { try { localStorage.setItem(KEY + '-probe', '1'); localStorage.removeItem(KEY + '-probe'); } catch (e) { storageOk = false; } })();
+
+/* ---------- question drawing: two shuffle bags, 70/30 deal odds ---------- */
+function idsFor(d) { return QUESTIONS.filter(function (q) { return q.difficulty === d; }).map(function (q) { return q.id; }); }
+function drawQuestion() {
+  var d = randInt(100) < CONFIG.hotDealPercent ? 'easy' : 'hard';
+  if (!idsFor(d).length) d = d === 'easy' ? 'hard' : 'easy';
+  var bag = S.bags[d];
+  if (!bag.length) {
+    bag = shuffle(idsFor(d));
+    if (bag.length > 1 && bag[0] === S.lastId) { var j = 1 + randInt(bag.length - 1), t = bag[0]; bag[0] = bag[j]; bag[j] = t; }
+    S.bags[d] = bag;
+  }
+  var id = bag.shift();
+  S.lastId = id;
+  save();
+  return id;
+}
+
+/* ---------- wake lock ---------- */
+var wl = null, wakeState = 'off';
+function wakeLabel() { return wakeState === 'on' ? 'Screen stays on' : 'Screen may sleep'; }
+function wakeUpdate() { var el = $('#wake'); if (el) { el.className = 'pill ' + (wakeState === 'on' ? 'good' : 'warn'); el.innerHTML = ico('sun') + esc(wakeLabel()); } }
+async function acquireWake() {
+  try {
+    if (!('wakeLock' in navigator)) { wakeState = 'off'; wakeUpdate(); return; }
+    if (document.visibilityState !== 'visible') return;
+    wl = await navigator.wakeLock.request('screen');
+    wakeState = 'on';
+    wl.addEventListener('release', function () { wl = null; wakeState = 'off'; wakeUpdate(); });
+  } catch (e) { wl = null; wakeState = 'off'; }
+  wakeUpdate();
+}
+document.addEventListener('pointerdown', function () { if (!wl) acquireWake(); }, { passive: true });
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && !wl) acquireWake(); });
+
+/* ---------- offline badge ---------- */
+var offlineReady = false;
+try {
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+    navigator.serviceWorker.ready.then(function () { offlineReady = true; var el = $('#offl'); if (el) el.style.display = ''; }).catch(function () {});
+  }
+} catch (e) {}
+
+/* ---------- QR ---------- */
+function qrSvg(px) {
+  try {
+    var q = qrcode(0, 'M'); q.addData(PROFILE_URL); q.make();
+    var n = q.getModuleCount(), m = 4, tot = n + 2 * m, cell = Math.max(3, Math.floor(px / tot)), d = '';
+    for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) if (q.isDark(r, c)) d += 'M' + (c + m) + ' ' + (r + m) + 'h1v1h-1z';
+    var size = cell * tot;
+    return '<svg id="qr" width="' + size + '" height="' + size + '" viewBox="0 0 ' + tot + ' ' + tot + '" shape-rendering="crispEdges" role="img" aria-label="QR code that opens @' + esc(CONFIG.handle) + ' on Instagram"><rect width="' + tot + '" height="' + tot + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+  } catch (e) {
+    return '<div style="padding:24px;line-height:1.3;font-weight:700">QR code unavailable.<br>Visitor can search for<br>@' + esc(CONFIG.handle) + ' on Instagram.</div>';
+  }
+}
+
+/* ---------- state + view ---------- */
+var view = S.cur ? 'flow' : 'home';
+var lockUntil = 0, dropTimer = null, modal = null, answerLockUntil = 0, toastTimer = null, freshQ = false;
+function lock(ms) { lockUntil = Date.now() + (ms || 250); }
+function go(v) { view = v; lock(); render(); }
+function cur() { return S.cur; }
+function pad3(n) { return String(n).padStart(3, '0'); }
+function fmtTime(ts) { try { return new Date(ts).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }); } catch (e) { return '-'; } }
+function fmtDate(ts) { try { return new Date(ts).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; } }
+
+/* ---------- components ---------- */
+function bar(left, mid, right) { return '<header class="bar">' + (left || '<span></span>') + '<div class="mid">' + esc(mid || '') + '</div>' + (right || '<span></span>') + '</header>'; }
+function steps(n) { var h = '<div class="steps" aria-hidden="true">'; for (var i = 1; i <= 4; i++) h += '<i class="' + (i < n ? 'done' : i === n ? 'on' : '') + '"></i>'; return h + '</div>'; }
+function dealStrip(diff, animate) {
+  if (diff === 'easy') return '<div class="deal hot' + (animate ? ' pop' : '') + '" id="deal"><span class="lbl">' + ico('tag') + 'HOT DEAL</span><s>$' + CONFIG.rrp + '</s><span class="off">' + esc(CONFIG.discountLabel) + '</span></div>';
+  return '<div class="deal full' + (animate ? ' pop' : '') + '" id="deal"><span class="lbl">' + ico('tag') + 'FULL PRICE</span><small>RRP $' + CONFIG.rrp + ', no discount today</small></div>';
+}
+function bigTag(diff) {
+  if (diff === 'easy') return '<div class="bigtag hot" id="bigtag"><div class="t1">HOT DEAL</div><div class="t2"><s>$' + CONFIG.rrp + '</s><span class="off">' + esc(CONFIG.discountLabel) + '</span></div></div>';
+  return '<div class="bigtag full" id="bigtag"><div class="t1">FULL PRICE</div><div class="t2">RRP $' + CONFIG.rrp + '</div><div class="t3">No discount today</div></div>';
+}
+
+/* ---------- screens ---------- */
+function screenHome() {
+  var st = S.stock, c = S.c, cls = st <= 0 ? 'out' : st <= CONFIG.lowStock ? 'low' : '';
+  var stockTxt = st <= 0 ? 'SOLD OUT' : String(st);
+  var lab = st <= 0 ? '<b>Thai food sold out</b><small>Follows can still be collected</small>' : st <= CONFIG.lowStock ? '<b>' + ico('warn') + ' Running low</b><small>Thai food serves left</small>' : '<b>Thai food left</b><small>serves remaining</small>';
+  return '' +
+  '<div class="brand"><img src="logo.jpg" alt="" width="52" height="52"><div><b>Checkout Challenge</b><span>UNSW E-Commerce Society</span></div></div>' +
+  '<main class="main">' +
+    '<div class="pills"><span id="wake" class="pill ' + (wakeState === 'on' ? 'good' : 'warn') + '">' + ico('sun') + esc(wakeLabel()) + '</span>' +
+    '<span id="offl" class="pill good" style="' + (offlineReady ? '' : 'display:none') + '">' + ico('check') + 'Works offline</span></div>' +
+    (storageOk ? '' : '<div class="banner-warn">Storage is blocked in this browser, so tallies will be lost if you close or refresh this page.</div>') +
+    '<div class="stock ' + cls + '" role="status"><div class="n">' + (st <= 0 ? '0' : stockTxt) + '</div><div class="l">' + lab + '</div></div>' +
+    '<div class="tallies">' +
+      '<div class="tally"><b>' + c.customers + '</b><span>Customers</span></div>' +
+      '<div class="tally"><b>' + (c.follows + c.already) + '</b><span>Followers</span></div>' +
+      '<div class="tally"><b>' + c.won + '</b><span>Winners</span></div>' +
+      '<div class="tally"><b>' + c.lost + '</b><span>No food</span></div>' +
+    '</div>' +
+    '<div class="spacer"></div>' +
+  '</main>' +
+  '<footer class="foot">' +
+    '<button class="btn pri big" data-act="next">' + ico('cart') + 'Next customer</button>' +
+    '<div class="row"><button class="btn sm" data-act="summary">' + ico('list') + 'Summary</button><button class="btn sm" data-act="help">' + ico('help') + 'How to run it</button></div>' +
+  '</footer>';
+}
+
+function screenFollow() {
+  var px = Math.min(window.innerWidth - 56, Math.round(window.innerHeight * 0.4), 320);
+  return bar('<button class="barbtn" data-act="back-home">' + ico('back') + 'Back</button>', 'Step 1 of 4') + steps(1) +
+  '<main class="main">' +
+    '<div class="center"><h1 class="title">Payment: follow us</h1><p class="sub">Scan, then follow on Instagram</p></div>' +
+    '<div class="qrcard">' + qrSvg(px) + '</div>' +
+    '<div class="handle">@' + esc(CONFIG.handle) + '</div>' +
+    '<div class="spacer"></div>' +
+  '</main>' +
+  '<footer class="foot">' +
+    '<button class="btn pri" data-act="follow-new">' + ico('check') + 'Follow confirmed</button>' +
+    '<button class="btn sm" data-act="follow-already">Already following</button>' +
+  '</footer>';
+}
+
+function screenReveal() {
+  return bar('<button class="barbtn" data-act="cancel">' + ico('back') + 'Cancel</button>', 'Step 2 of 4') + steps(2) +
+  '<main class="main">' +
+    '<div class="center"><h1 class="title">Payment received!</h1><p class="sub">Now see what your deal is today</p></div>' +
+    '<div class="mystery" aria-hidden="true"><b>?</b><span>Your deal is waiting</span></div>' +
+    '<div class="spacer"></div>' +
+  '</main>' +
+  '<footer class="foot"><button class="btn pri big" data-act="reveal">' + ico('tag') + 'Reveal deal</button></footer>';
+}
+
+function screenDrop() {
+  var q = qById(cur().qid);
+  return bar('<span></span>', 'Step 2 of 4') + steps(2) +
+  '<main class="main"><div class="dropwrap' + (REDUCED ? ' nomo' : '') + '" role="status">' +
+    '<div class="scanbox" aria-hidden="true"><div class="bc"></div><div class="ln"></div></div>' +
+    bigTag(q.difficulty) +
+    '<p class="scanmsg">Scanning price...</p>' +
+  '</div></main><footer class="foot"></footer>';
+}
+
+function screenQuestion() {
+  var q = qById(cur().qid), long = q.question.length > 62;
+  var ans = LETTERS.map(function (k) {
+    return '<button class="ans" data-act="answer" data-k="' + k + '"><span class="ltr">' + k + '</span><span class="txt">' + esc(q.options[k]) + '</span></button>';
+  }).join('');
+  var h = bar('<button class="barbtn" data-act="cancel">' + ico('back') + 'Cancel</button>', 'Step 3 of 4',
+              '<button class="barbtn r" data-act="skip">Skip' + ico('skip') + '</button>') + steps(3) +
+  '<main class="main" style="padding-bottom:max(14px,var(--safe-b))"><div class="qwrap">' +
+    '<div style="display:flex;flex-direction:column;gap:10px">' + dealStrip(q.difficulty, freshQ) +
+    '<h1 class="qtext' + (long ? ' long' : '') + '" id="qtext">' + esc(q.question) + '</h1></div>' +
+    '<div class="answers" role="group" aria-label="Answers">' + ans + '</div>' +
+  '</div></main>';
+  freshQ = false;
+  return h;
+}
+
+function screenResult() {
+  var cu = cur(), q = qById(cu.qid), ok = cu.ok, sold = S.stock <= 0;
+  var retry = !ok && cu.attempt <= CONFIG.retries;
+  var banner;
+  if (ok) banner = '<div class="banner ok" id="result">' + ico('check') + '<div><b>ORDER CONFIRMED</b><small>' +
+    (sold ? 'Thai food sold out. Thanks for following!' : 'Order #' + pad3(S.c.customers) + ' | Thai food x1 | Total $0.00') + '</small></div></div>';
+  else if (retry) banner = '<div class="banner bad" id="result">' + ico('x') + '<div><b>NOT QUITE</b><small>You get one more go!</small></div></div>';
+  else banner = '<div class="banner bad" id="result">' + ico('x') + '<div><b>PAYMENT DECLINED</b><small>No food this time. Thanks for following!</small></div></div>';
+  var ans = LETTERS.filter(function (k) { return k === q.answer || k === cu.picked; }).map(function (k) {
+    var cls = 'ans', tag = '';
+    if (k === q.answer) { cls += ' is-right'; tag = '<span class="tag">' + ico('check') + 'Correct</span>'; }
+    else if (k === cu.picked) { cls += ' is-wrong'; tag = '<span class="tag">' + ico('x') + 'Your pick</span>'; }
+    else cls += ' dim';
+    return '<button class="' + cls + '" tabindex="-1"><span class="ltr">' + k + '</span><span class="txt">' + esc(q.options[k]) + '</span>' + tag + '</button>';
+  }).join('');
+  var foot;
+  if (ok && !sold) foot = '<button class="btn ok" data-act="serve">' + ico('check') + 'Serve food (' + S.stock + ' left)</button>';
+  else if (retry) foot = '<button class="btn pri" data-act="retry">Try one more question</button><button class="btn sm" data-act="end-lost">End here, no retry</button>';
+  else foot = '<button class="btn pri" data-act="done">Done</button>';
+  return bar('<span></span>', 'Step 4 of 4') + steps(4) +
+  '<main class="main">' + banner +
+    '<div class="qtext small">' + esc(q.question) + '</div>' +
+    '<div class="answers done">' + ans + '</div>' +
+    '<div class="fact"><small>Say this</small><p>' + esc(q.fact) + '</p></div>' +
+  '</main><footer class="foot">' + foot + '</footer>';
+}
+
+function statGrid() {
+  var c = S.c;
+  function s(n, l, cls) { return '<div class="stat ' + (cls || '') + '"><b>' + n + '</b><span>' + l + '</span></div>'; }
+  return '<div class="stats">' + s(c.customers, 'Customers') + s(S.stock + ' / ' + S.startStock, 'Food left') +
+    s(c.follows, 'Follows confirmed') + s(c.already, 'Already following') +
+    s(c.correct, 'Answers correct') + s(c.wrong, 'Answers wrong') +
+    s(c.won, 'Customers won') + s(c.lost, 'Customers lost') +
+    s(c.hot, 'HOT DEAL draws', 'hot') + s(c.full, 'FULL PRICE draws') +
+    s(c.retries, 'Retries given') + s(c.skips, 'Skips') + s(c.served, 'Food served') + '</div>';
+}
+function summaryText() {
+  var c = S.c, t = S.first || S.last || Date.now();
+  var lines = [
+    'EcomSoc Checkout Challenge summary',
+    'Phone: ' + (S.label || 'not labelled'),
+    'Date: ' + fmtDate(t),
+    'First customer: ' + (S.first ? fmtTime(S.first) : 'none yet'),
+    'Last customer: ' + (S.last ? fmtTime(S.last) : 'none yet'),
+    'Customers: ' + c.customers,
+    'Follows confirmed: ' + c.follows,
+    'Already following: ' + c.already,
+    'Answers correct: ' + c.correct,
+    'Answers wrong: ' + c.wrong,
+    'Customers won: ' + c.won,
+    'Customers lost: ' + c.lost,
+    'Retries given: ' + c.retries,
+    'Skips: ' + c.skips,
+    'HOT DEAL draws: ' + c.hot,
+    'FULL PRICE draws: ' + c.full,
+    'Food served: ' + c.served,
+    'Food remaining: ' + S.stock + ' of ' + S.startStock
+  ];
+  return lines.join('\n');
+}
+function screenSummary() {
+  return bar('<button class="barbtn" data-act="back-home">' + ico('back') + 'Home</button>', 'Summary') +
+  '<main class="main">' + statGrid() +
+    '<div class="card"><div class="kv"><span>First customer</span><span>' + (S.first ? fmtTime(S.first) : 'none yet') + '</span></div>' +
+    '<div class="kv"><span>Last customer</span><span>' + (S.last ? fmtTime(S.last) : 'none yet') + '</span></div></div>' +
+    '<button class="btn pri" data-act="copy">' + ico('copy') + 'Copy summary</button>' +
+    '<h2 class="sec">Food remaining</h2>' +
+    '<div class="stepper"><button class="btn" data-act="stock-" aria-label="One less">-1</button><div class="v" id="stockv">' + S.stock + '</div><button class="btn" data-act="stock+" aria-label="One more">+1</button></div>' +
+    '<h2 class="sec">Starting stock (used on reset)</h2>' +
+    '<div class="stepper"><button class="btn" data-act="start-" aria-label="Five less">-5</button><div class="v" id="startv">' + S.startStock + '</div><button class="btn" data-act="start+" aria-label="Five more">+5</button></div>' +
+    '<h2 class="sec">Phone label (for adding up)</h2>' +
+    '<input class="txt" id="label" type="text" maxlength="24" placeholder="e.g. Phone 1" value="' + esc(S.label) + '" autocomplete="off" autocapitalize="words" enterkeyhint="done">' +
+    '<h2 class="sec">Reset</h2>' +
+    '<p class="sub">Clears all tallies and sets food back to the starting stock.</p>' +
+    '<button class="btn hold" data-hold="reset" aria-label="Press and hold for 2 seconds to reset"><span class="fill"></span><span>' + ico('trash') + 'Hold 2 seconds to reset</span></button>' +
+    '<div style="height:8px"></div>' +
+  '</main>';
+}
+function screenHelp() {
+  var h = CONFIG.handle;
+  return bar('<button class="barbtn" data-act="back-home">' + ico('back') + 'Home</button>', 'How to run it') +
+  '<main class="main"><ol class="how">' +
+    '<li><span>Hold the phone so the visitor can read it. Tap <b>Next customer</b>.</span></li>' +
+    '<li><span>Ask them to scan the QR code and follow <b>@' + esc(h) + '</b> on Instagram.</span></li>' +
+    '<li><span>Check their screen says <b>Following</b>, then tap <b>Follow confirmed</b>. Already a follower? Tap <b>Already following</b>.</span></li>' +
+    '<li><span>Tap <b>Reveal deal</b>. HOT DEAL means an easy question, FULL PRICE means a harder one.</span></li>' +
+    '<li><span>Let them point or tap their answer, then tap it for them. Do not hint. Heard the question already? Tap <b>Skip</b>.</span></li>' +
+    '<li><span>Read the <b>Say this</b> fun fact out loud. If they are right, tap <b>Serve food</b> and hand over one cup of Thai food.</span></li>' +
+    '<li><span><b>Wrong answer:</b> they get one more random question. If they miss that too, no food this time. Thank them for following.</span></li>' +
+    '<li><span><b>Food runs out:</b> the app says Sold out. Keep collecting follows and thank everyone for coming.</span></li>' +
+  '</ol>' +
+  '<div class="tip">Screen locking? Set Auto-Lock to Never in iPhone Settings, or Screen timeout to 10 minutes on Android. Tallies are saved on this phone, so use Summary at the end of the day.</div>' +
+  '<div style="height:8px"></div></main>';
+}
+
+/* ---------- render ---------- */
+function render() {
+  clearTimeout(dropTimer);
+  var oldC = $('.confetti'); if (oldC) oldC.remove();
+  var html = '', cu = cur();
+  if (view === 'summary') html = screenSummary();
+  else if (view === 'help') html = screenHelp();
+  else if (view === 'flow' && cu) {
+    if (cu.step === 'follow') html = screenFollow();
+    else if (cu.step === 'reveal') html = screenReveal();
+    else if (cu.step === 'drop') html = screenDrop();
+    else if (cu.step === 'question') { html = screenQuestion(); answerLockUntil = Date.now() + 350; }
+    else html = screenResult();
+  } else { view = 'home'; html = screenHome(); }
+  $('#app').innerHTML = html;
+  if (view === 'flow' && cu && cu.step === 'drop') {
+    dropTimer = setTimeout(function () { if (cur() && cur().step === 'drop') { cur().step = 'question'; freshQ = true; save(); lock(); render(); } }, REDUCED ? 350 : CONFIG.dropMs);
+  }
+  if (view === 'flow' && cu && cu.step === 'result') {
+    if (cu.ok) { buzz(80); confetti(); } else buzz([120, 60, 120]);
+  }
+  var main = $('.main'); if (main) main.scrollTop = 0;
+}
+
+/* ---------- toast / modal / confetti ---------- */
+function toast(msg) {
+  clearTimeout(toastTimer);
+  var t = $('#toast'); if (t) t.remove();
+  var d = document.createElement('div'); d.className = 'toast'; d.id = 'toast'; d.setAttribute('role', 'status'); d.textContent = msg;
+  document.body.appendChild(d);
+  toastTimer = setTimeout(function () { d.remove(); }, 2200);
+}
+function showModal(html) { modal = true; $('#layer').innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">' + html + '</div></div>'; }
+function closeModal() { modal = null; $('#layer').innerHTML = ''; }
+function confetti() {
+  if (REDUCED) return;
+  var cols = ['#F5B800', '#C8001E', '#0A6B34', '#111111', '#FFFFFF'], h = '';
+  for (var i = 0; i < 34; i++) {
+    var x = Math.round((Math.random() - .5) * 360), y = 160 + Math.round(Math.random() * 360), r = Math.round((Math.random() - .5) * 900);
+    h += '<i style="background:' + cols[i % cols.length] + ';--x:' + x + 'px;--y:' + y + 'px;--r:' + r + 'deg;animation-delay:' + (Math.random() * .15).toFixed(2) + 's' + (i % 5 === 4 ? ';outline:1px solid #111' : '') + '"></i>';
+  }
+  var d = document.createElement('div'); d.className = 'confetti'; d.setAttribute('aria-hidden', 'true'); d.innerHTML = h;
+  document.body.appendChild(d); setTimeout(function () { d.remove(); }, 1700);
+}
+
+/* ---------- actions ---------- */
+function newCustomer() {
+  S.cur = { step: 'follow', follow: null, qid: null, attempt: 1, counted: false, picked: null, ok: false };
+  save(); go('flow');
+}
+function endCustomer() { S.cur = null; save(); go('home'); }
+function askCancel() {
+  showModal('<h3>Cancel this customer?</h3><p class="sub">Nothing will be counted for them.</p>' +
+    '<button class="btn" data-act="cancel-yes">Cancel customer</button><button class="btn pri" data-act="modal-close">Keep going</button>');
+}
+function doReveal() { var cu = cur(); cu.qid = drawQuestion(); cu.step = 'drop'; save(); lock(); render(); }
+function doSkip() {
+  var cu = cur(); if (!cu || cu.step !== 'question') return;
+  S.c.skips++; cu.qid = drawQuestion(); freshQ = true; save(); lock(); render();
+}
+function doAnswer(k) {
+  var cu = cur(); if (!cu || cu.step !== 'question' || Date.now() < answerLockUntil) return;
+  var q = qById(cu.qid), now = Date.now(), c = S.c;
+  if (!cu.counted) {
+    cu.counted = true; c.customers++;
+    if (cu.follow === 'already') c.already++; else c.follows++;
+    if (!S.first) S.first = now;
+  }
+  S.last = now;
+  cu.picked = k; cu.ok = (k === q.answer);
+  if (q.difficulty === 'easy') c.hot++; else c.full++;
+  if (cu.ok) { c.correct++; c.won++; }
+  else { c.wrong++; if (cu.attempt > CONFIG.retries) c.lost++; }
+  cu.step = 'result'; save(); lock(); render();
+}
+function doRetry() {
+  var cu = cur(); cu.attempt++; S.c.retries++; cu.picked = null; cu.ok = false; cu.qid = drawQuestion(); cu.step = 'drop'; save(); lock(); render();
+}
+function doServe() {
+  var cu = cur(); if (!cu || cu.step !== 'result' || !cu.ok) return;
+  if (S.stock > 0) { S.stock--; S.c.served++; }
+  endCustomer();
+}
+function endLost() { S.c.lost++; endCustomer(); }
+function adj(key, d, min) { S[key] = Math.max(min, Math.min(999, S[key] + d)); save(); var el = $(key === 'stock' ? '#stockv' : '#startv'); if (el) el.textContent = S[key]; }
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) {}
+  try {
+    var ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
+    var ok = document.execCommand('copy'); ta.remove(); return ok;
+  } catch (e) { return false; }
+}
+async function doCopy() {
+  var t = summaryText();
+  if (await copyText(t)) toast('Summary copied');
+  else showModal('<h3>Copy by hand</h3><p class="sub">Select all the text below and copy it.</p><textarea id="manual" readonly>' + esc(t) + '</textarea><button class="btn pri" data-act="modal-close">Close</button>');
+}
+function doReset() {
+  var keepLabel = S.label, st = S.startStock;
+  S = fresh(); S.label = keepLabel; S.startStock = st; S.stock = st; save();
+  toast('Reset done'); go('home');
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('[data-act]'); if (!b) return;
+  if (Date.now() < lockUntil && b.dataset.act !== 'modal-close') return;
+  var a = b.dataset.act, cu = cur();
+  switch (a) {
+    case 'next': newCustomer(); break;
+    case 'summary': go('summary'); break;
+    case 'help': go('help'); break;
+    case 'back-home':
+      if (view === 'flow' && cu && cu.step === 'follow') { S.cur = null; save(); }
+      go('home'); break;
+    case 'follow-new': cu.follow = 'new'; cu.step = 'reveal'; save(); go('flow'); break;
+    case 'follow-already': cu.follow = 'already'; cu.step = 'reveal'; save(); go('flow'); break;
+    case 'cancel': askCancel(); break;
+    case 'cancel-yes': closeModal(); endCustomer(); break;
+    case 'modal-close': closeModal(); break;
+    case 'reveal': doReveal(); break;
+    case 'skip': doSkip(); break;
+    case 'answer': doAnswer(b.dataset.k); break;
+    case 'serve': doServe(); break;
+    case 'retry': doRetry(); break;
+    case 'end-lost': endLost(); break;
+    case 'done': endCustomer(); break;
+    case 'copy': doCopy(); break;
+    case 'stock-': adj('stock', -1, 0); break;
+    case 'stock+': adj('stock', 1, 0); break;
+    case 'start-': adj('startStock', -5, 0); break;
+    case 'start+': adj('startStock', 5, 0); break;
+  }
+});
+document.addEventListener('input', function (e) { if (e.target.id === 'label') { S.label = e.target.value.slice(0, 24); save(); } });
+document.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.id === 'label') e.target.blur(); });
+document.addEventListener('contextmenu', function (e) { if (e.target.closest('[data-hold]')) e.preventDefault(); });
+
+/* hold to reset */
+var holdTimer = null, holdBtn = null;
+function holdStop() { clearTimeout(holdTimer); holdTimer = null; if (holdBtn) { holdBtn.classList.remove('go'); holdBtn = null; } }
+document.addEventListener('pointerdown', function (e) {
+  var b = e.target.closest('[data-hold]'); if (!b) return;
+  holdStop(); holdBtn = b; void b.offsetWidth; b.classList.add('go');
+  holdTimer = setTimeout(function () { holdStop(); doReset(); }, 2000);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) { document.addEventListener(ev, function (e) { if (holdBtn && (ev !== 'pointerleave' || e.target === holdBtn)) holdStop(); }, true); });
+
+/* hardware Back (Android) and edge swipe (iOS): step back inside the app, never leave by accident */
+try { history.replaceState({ g: 1 }, ''); history.pushState({ g: 2 }, ''); } catch (e) {}
+window.addEventListener('popstate', function () {
+  try { history.pushState({ g: 2 }, ''); } catch (e) {}
+  var cu = cur();
+  if (modal) closeModal();
+  else if (view === 'summary' || view === 'help') go('home');
+  else if (view === 'flow' && cu && cu.step === 'follow') { S.cur = null; save(); go('home'); }
+  else if (view === 'flow' && cu && !cu.counted && cu.step !== 'drop') askCancel();
+});
+var rz = null;
+window.addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { var cu = cur(); if (view === 'flow' && cu && cu.step === 'follow') render(); }, 200); });
+
+/* test and debugging hooks (read-only use) */
+window.CC = { QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: doReset };
+
+render();
+})();
+</script>
+</body>
+</html>
