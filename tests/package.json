@@ -3,11 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run.mjs && node sync.mjs && node rules-check.mjs",
+    "test": "node run.mjs && node sync.mjs && node rules-check.mjs && node sw-update.mjs",
     "test:solo": "node run.mjs",
     "test:sync": "node sync.mjs",
     "test:rules": "node rules-check.mjs",
-    "test:live": "node rules-check.mjs --live && node sync.mjs --live"
+    "test:live": "node rules-check.mjs --live && node sync.mjs --live",
+    "test:update": "node sw-update.mjs",
+    "test:soak": "node soak.mjs"
   },
   "devDependencies": {
     "jsqr": "^1.4.0",

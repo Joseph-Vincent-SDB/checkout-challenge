@@ -8,3 +8,4 @@ tests/last-rules-run.json
 tests/sheet.mjs
 volunteer-join-qr.png
 .firebaserc
+tests/last-soak-run.json
