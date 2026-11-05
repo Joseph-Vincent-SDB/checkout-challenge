@@ -6,3 +6,5 @@ tests/screenshots/
 tests/last-sync-run.json
 tests/last-rules-run.json
 tests/sheet.mjs
+volunteer-join-qr.png
+.firebaserc
