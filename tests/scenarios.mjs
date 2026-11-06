@@ -375,6 +375,30 @@ if (want('9c')) {
   await reset();
 }
 
+/* ---------- 9d. the team code in a ?t= link (in case a chat app drops the # part) ---------- */
+if (want('9d')) {
+  const IGI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21F90 Instagram 340.0.0.19.108 (iPhone14,5; iOS 17_5; en_AU; en-AU; scale=3.00; 1170x2532; 640110043)';
+  const SAF = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+  const hook = () => { window.__ccNavigate = (u, how) => { (window.__navs = window.__navs || []).push([u, how]); }; };
+  const ctxOpts = ua => ({ userAgent: ua, ...(IS_CHROMIUM ? { permissions: ['clipboard-read', 'clipboard-write'] } : {}) });
+  const N = await phone('', { join: false, ctx: ctxOpts(SAF) }); await N.goto('about:blank'); await N.goto(BASE + '?t=' + TEAM); await N.waitForSelector('#app *');
+  check('Normal browser: a ?t=CODE link joins the team and removes the code from the address', await until(async () => (await N.evaluate(() => CC.state().team)) === TEAM, 6000) && new URL(N.url()).search === '' && new URL(N.url()).hash === '', N.url());
+  await N.ctx.close(); phones.pop();
+  const K = await phone('', { join: false, ctx: ctxOpts(SAF) }); await K.goto('about:blank'); await K.goto(BASE + '?utm=chat&t=' + TEAM.slice(0, 4) + '-' + TEAM.slice(4)); await K.waitForSelector('#app *');
+  check('Other parts of the link are kept and a dashed or lower-case code works too', await until(async () => (await K.evaluate(() => CC.state().team)) === TEAM, 6000) && new URL(K.url()).search === '?utm=chat', K.url());
+  await K.ctx.close(); phones.pop();
+  await reset();   // a fresh team, so "nothing was written for it" is meaningful
+  const I = await phone('', { join: false, ctx: ctxOpts(IGI), init: hook }); await I.evaluate(() => sessionStorage.clear()); await I.goto('about:blank'); await I.goto(BASE + '?t=' + TEAM); await I.waitForSelector('#app *'); await wait(1200);
+  const txt = await I.innerText('#app'); const navs = await I.evaluate(() => window.__navs || []);
+  check('Instagram browser: a ?t=CODE link shows the guide with the team code and does not join', /Open this in Safari/.test(txt) && txt.includes(TEAM.slice(0, 4) + '-' + TEAM.slice(4)) && (await I.evaluate(() => CC.state().team)) === '' && mock.get(['events', TEAM]) === null);
+  check('...the automatic handoff carries the code into the # part of the link for Safari', navs.length === 1 && navs[0][0].startsWith('x-safari-http') && navs[0][0].endsWith('#t=' + TEAM) && !navs[0][0].includes('?'), JSON.stringify(navs));
+  if (IS_CHROMIUM) { await tap(I, '[data-act=iab-copy]'); await wait(400); const clip = await I.evaluate(() => navigator.clipboard.readText()); check('...and Copy link gives the clean #t= form', clip === BASE + '#t=' + TEAM, clip); }
+  await tap(I, '[data-act=iab-continue]');
+  check('...and Continue anyway joins the team and removes the code from the address', await until(async () => (await I.evaluate(() => CC.state().team)) === TEAM, 6000) && new URL(I.url()).search === '', I.url());
+  check('No JS errors', noErr([I]), errs([I])); await I.ctx.close(); phones.pop();
+  await reset();
+}
+
 /* ---------- 10. monkey test: random chaos ---------- */
 if (want('10')) {
   const A = await phone('Monkey A'), B = await phone('Monkey B'); await until(async () => (await st(A)) === 'ok' && (await st(B)) === 'ok');

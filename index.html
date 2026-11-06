@@ -1230,7 +1230,7 @@ document.addEventListener('click', function (e) {
     case 'iab-continue': {
       iabAck = true; try { localStorage.setItem(IABKEY, '1'); } catch (e) {}
       var pc = pendingCode; pendingCode = '';
-      if (location.hash) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} }
+      if (addressHasCode()) stripCodeFromAddress();
       view = S.cur ? 'flow' : (SYNC_URL && !S.team && !S.skipJoin && !pc ? 'join' : 'home'); render(); applyJoinCode(pc); break; }
     case 'iab-open': toast('Opening your browser...'); iabHandoff(false); break;
     case 'iab-help': view = 'iab'; render(); break;
@@ -1297,13 +1297,23 @@ function applyJoinCode(code) {
   joinTeam(code);
   if (started) { toast('Joined team ' + fmtTeam(code)); view = S.cur ? 'flow' : 'home'; render(); }
 }
+/* The team code normally travels after the # (it never reaches the web host). If a chat app or link wrapper drops the #part,
+   the same code is also accepted as ?t=CODE, which survives any link rewriting. Either way it is removed from the address once used. */
+function codeFromAddress() { return parseTeam(location.hash || '') || parseTeam(location.search || ''); }
+function addressHasCode() { return !!location.hash || /[?&]t(eam)?=/i.test(location.search); }
+function stripCodeFromAddress() {
+  try {
+    var q = (location.search || '').replace(/^\?/, '').split('&').filter(function (kv) { return kv && !/^t(eam)?=/i.test(kv); }).join('&');
+    history.replaceState(null, '', location.pathname + (q ? '?' + q : ''));
+  } catch (e) {}
+}
 function handleHash() {
-  var code = parseTeam(location.hash || '');
+  var code = codeFromAddress();
   if (iabBlocking()) {                      // inside Instagram and friends: do not join here, send the volunteer to Safari or Chrome first
     if (code) { pendingCode = code; if (started) { view = 'iab'; render(); } }
     return;                                 // the address (with the code) is kept so Copy link still has it
   }
-  if (location.hash) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} }
+  if (addressHasCode()) stripCodeFromAddress();
   applyJoinCode(code);
 }
 window.addEventListener('hashchange', handleHash);

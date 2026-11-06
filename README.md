@@ -50,6 +50,7 @@ Command-line alternative to steps 1 to 3 (needs Node.js): `npx firebase-tools lo
 
 1. Make a team code: 8 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no I, O, 0 or 1), for example `K7MQ-X2PA`. Anyone with the code can read and change your numbers, so share it only with volunteers. **Do not commit it to the repository.**
 2. Volunteers open the link `https://ecomsoc-checkout.web.app/#t=K7MQX2PA` (or scan a QR code of it). The phone joins, removes the code from the address bar and remembers it.
+   If a chat app strips everything after the `#`, the same code also works as `https://ecomsoc-checkout.web.app/?t=K7MQX2PA`. The app uses it and then removes it from the address. (This version of the link does pass the code to the web host in the request, so prefer the `#` link.)
 3. Another way: open the app, choose **Join team** and type the code. On a phone already on the team, **Summary > Show join QR** shows a QR code for new volunteers to scan.
 4. **iPhone note:** an app added to the Home Screen has its own storage, separate from Safari. After adding it, open the app and type the team code once (Summary shows the code on phones already joined).
 5. Name each phone in **Summary > This phone's name**, so the Phones list and Copy summary say who served what.
