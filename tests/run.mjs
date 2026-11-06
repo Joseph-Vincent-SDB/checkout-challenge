@@ -146,7 +146,7 @@ for (const name of DEVICES) {
   const page = await newPage(SE);
   await page.goto(BASE); await page.waitForSelector('[data-act=next]');
   const ids = await page.evaluate(() => window.CC.QUESTIONS.map(q => q.id));
-  const bad = [], tight = [];
+  const bad = [], tight = [], old = [];
   for (const id of ids) {
     await seed(page, s => { s.cur = { step: 'question', follow: 'new', qid: id, attempt: 1, counted: false, picked: null, ok: false }; });
     await wait(450);
@@ -154,9 +154,12 @@ for (const name of DEVICES) {
     if (lr.hscroll || lr.mainScrolls || lr.overflowEls.length || lr.smallTargets.length) bad.push(id + ' ' + JSON.stringify(lr));
     await page.setViewportSize({ width: 375, height: 553 }); await wait(100);
     const lr2 = await layoutReport(page); if (lr2.mainScrolls || lr2.hscroll) tight.push(id);
+    await page.setViewportSize({ width: 320, height: 568 }); await wait(100);
+    const lr3 = await layoutReport(page); if (lr3.mainScrolls || lr3.hscroll || lr3.smallTargets.length || lr3.overflowEls.length) old.push(id + ' ' + JSON.stringify(lr3.mainH));
     await page.setViewportSize({ width: 375, height: 667 });
   }
   check('All 20 questions fit on one screen at 375x667 (incl. longest answer)', bad.length === 0, bad.join(' | '));
+  check('All 20 questions also fit on the oldest small phone (320 x 568, iPhone SE first generation), every button 48 px', old.length === 0, old.join(' | '));
   check('Info: questions needing scroll at cramped 375x553', true, tight.length ? tight.join(',') : 'none');
   await page.context().close();
 }
