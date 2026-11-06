@@ -314,29 +314,55 @@ if (want('9c')) {
     ios: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA'),
     iosPlain: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/'),
     iosHttp: CC.buildHandoff('ios', 'http://127.0.0.1:8080/'),
+    igIos: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA', 'Instagram'),
+    fbIosApp: CC.buildHandoff('ios', 'https://x.test/', 'Facebook or Messenger'),
+    igAndroidApp: CC.buildHandoff('android', 'https://x.test/', 'Instagram'),
     android: CC.buildHandoff('android', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA'),
     other: CC.buildHandoff('other', 'https://x.test/')
   }));
   check('iPhone handoff link is x-safari-https://... and keeps the team code', urls.ios === 'x-safari-https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA' && urls.iosPlain === 'x-safari-https://joseph-vincent-sdb.github.io/checkout-challenge/' && urls.iosHttp === 'x-safari-http://127.0.0.1:8080/', JSON.stringify(urls.ios));
+  check('Instagram on iPhone uses its own instagram://extbrowser/?url=... link (x-safari is blocked there) with the encoded team code; other apps keep x-safari; Android is unchanged by the app name',
+    urls.igIos === 'instagram://extbrowser/?url=' + encodeURIComponent('https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA') && urls.fbIosApp === 'x-safari-https://x.test/' && urls.igAndroidApp.startsWith('intent://x.test/#Intent;scheme=https;'), urls.igIos);
   check('Android handoff link is an intent:// link for the default browser (no package forced) and keeps the team code', /^intent:\/\/joseph-vincent-sdb\.github\.io\/checkout-challenge\/#t=6TRDH2ZA#Intent;scheme=https;S\.browser_fallback_url=https%3A%2F%2Fjoseph-vincent-sdb\.github\.io%2Fcheckout-challenge%2F%236TRDH2ZA;end$/.test(urls.android.replace('%23t%3D','%236TRDH2ZA')) || (urls.android.startsWith('intent://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA#Intent;scheme=https;') && urls.android.endsWith(';end') && !/package=/.test(urls.android)), urls.android);
   check('Unknown systems get no handoff link', urls.other === '');
   await pure.ctx.close(); phones.pop();
 
-  // iPhone Instagram: tries once by itself (main frame), not again after a reload, and the button tries again
-  const I = await phone('', { join: false, ctx: { userAgent: IGI }, init: hook }); await I.evaluate(() => sessionStorage.clear()); await I.goto('about:blank'); await I.goto(BASE + '#t=' + TEAM); await I.waitForSelector('#app *'); await wait(1200);
-  const n1 = await navs(I);
-  check('Instagram on iPhone: the link tries to open Safari by itself, once', n1.length === 1 && n1[0][1] === 'main' && n1[0][0].startsWith('x-safari-http'), JSON.stringify(n1));
-  check('...with the team code inside the link it hands over', n1.length === 1 && n1[0][0].endsWith('#t=' + TEAM));
-  check('...and the guide screen is still there as the fallback', /Open this in Safari/.test(await I.innerText('#app')) && !!(await I.$('[data-act=iab-open]')));
-  await I.reload(); await I.waitForSelector('#app *'); await wait(1200);
-  check('After a reload in the same tab it does not try again by itself (no loops)', (await navs(I)).length === 0);
+  // iPhone Instagram: nothing automatic (only a tap is accepted), the button uses Instagram's own link, and a refusal is reported
+  const hookShare = () => { window.__ccNavigate = (u, how) => { (window.__navs = window.__navs || []).push([u, how]); }; navigator.share = d => { window.__shared = d; return Promise.resolve(); }; };
+  const hookNoShare = () => { window.__ccNavigate = (u, how) => { (window.__navs = window.__navs || []).push([u, how]); }; Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); };
+  const I = await phone('', { join: false, ctx: { userAgent: IGI }, init: hookNoShare }); await I.evaluate(() => sessionStorage.clear()); await I.goto('about:blank'); await I.goto(BASE + '#t=' + TEAM); await I.waitForSelector('#app *'); await wait(1200);
+  check('Instagram on iPhone: nothing is attempted automatically (Instagram only accepts a tap, and an automatic try could blank the page)', (await navs(I)).length === 0);
+  check('...the guide is on screen with the Open in Safari button, the three steps and Copy link', /Open this in Safari/.test(await I.innerText('#app')) && !!(await I.$('[data-act=iab-open]')) && !!(await I.$('[data-act=iab-copy]')) && (await I.$$('ol.how li')).length === 3);
+  check('...no "did not open" warning before anything was tried, and no Share button when the phone cannot share', !(await I.$('#iabfail')) && !(await I.$('[data-act=iab-share]')));
   await tap(I, '[data-act=iab-open]'); await wait(300);
   const n2 = await navs(I);
-  check('The "Open in Safari" button tries again on tap', n2.length === 1 && n2[0][0].startsWith('x-safari-http') && n2[0][1] === 'main', JSON.stringify(n2));
+  check('Tapping "Open in Safari" opens instagram://extbrowser/?url=<link> in the main window', n2.length === 1 && n2[0][1] === 'main' && n2[0][0].startsWith('instagram://extbrowser/?url=') && decodeURIComponent(n2[0][0].slice('instagram://extbrowser/?url='.length)) === BASE + '#t=' + TEAM, JSON.stringify(n2));
+  await wait(2200);
+  const failTxt = (await I.innerText('#app')).replace(/\n/g, ' ');
+  check('If the page is still there ~2 s later it says "did not open Safari" and points to the menu and Copy link', !!(await I.$('#iabfail')) && /did not open Safari/.test(failTxt) && /Copy link/.test(failTxt), failTxt.slice(0, 160));
+  await I.screenshot({ path: path.join(ROOT, 'tests', 'screenshots', 'iab-instagram-ios-failed.png') });
   await I.setViewportSize({ width: 320, height: 568 }); await wait(200);
-  const lay = await I.evaluate(() => { const bad = []; if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('hscroll'); document.querySelectorAll('#app button').forEach(b => { const r = b.getBoundingClientRect(); if (r.width && (r.height < 47.5 || r.width < 47.5)) bad.push(b.textContent.trim().slice(0, 12)); }); return bad.join(','); });
-  check('The guide with its three buttons fits the smallest phone, all buttons 48 px', lay === '', lay);
+  const lay0 = await I.evaluate(() => { const bad = []; if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('hscroll'); document.querySelectorAll('#app button').forEach(b => { const r = b.getBoundingClientRect(); if (r.width && (r.height < 47.5 || r.width < 47.5)) bad.push(b.textContent.trim().slice(0, 12)); }); const f = document.querySelector('.foot'); if (f && f.getBoundingClientRect().bottom > innerHeight + 1) bad.push('foot-offscreen'); return bad.join(','); });
+  check('The guide with the warning fits the smallest phone (320 x 568), all buttons 48 px, buttons on screen', lay0 === '', lay0);
+  await I.setViewportSize({ width: 375, height: 667 });
+  await I.reload(); await I.waitForSelector('#app *'); await wait(800);
+  check('After a reload the guide is back without a stale warning and nothing was tried again', !(await I.$('#iabfail')) && (await navs(I)).length === 0);
   check('No JS errors', noErr([I]), errs([I])); await I.ctx.close(); phones.pop();
+
+  // the page really does leave: the warning must not appear
+  const L = await phone('', { join: false, ctx: { userAgent: IGI }, init: () => { window.__ccNavigate = (u, how) => { (window.__navs = window.__navs || []).push([u, how]); setTimeout(() => window.dispatchEvent(new Event('pagehide')), 200); }; } });
+  await L.goto('about:blank'); await L.goto(BASE + '#t=' + TEAM); await L.waitForSelector('#app *'); await wait(500);
+  await tap(L, '[data-act=iab-open]'); await wait(2600);
+  check('When the jump works (the page is hidden), no "did not open" warning is shown', !(await L.$('#iabfail')) && (await navs(L)).length === 1);
+  await L.ctx.close(); phones.pop();
+
+  // phones that can share get a Share link button
+  const S = await phone('', { join: false, ctx: { userAgent: IGI }, init: hookShare }); await S.goto('about:blank'); await S.goto(BASE + '#t=' + TEAM); await S.waitForSelector('#app *'); await wait(500);
+  check('A phone that supports sharing gets a Share link button', !!(await S.$('[data-act=iab-share]')));
+  await tap(S, '[data-act=iab-share]'); await wait(300);
+  const shared = await S.evaluate(() => window.__shared);
+  check('...and it shares the clean link with the team code', shared && shared.url === BASE + '#t=' + TEAM, JSON.stringify(shared));
+  check('No JS errors', noErr([S]), errs([S])); await S.ctx.close(); phones.pop();
 
   // Android Instagram: automatic try goes through a hidden frame (cannot break the page), the button uses the main window
   const A = await phone('', { join: false, ctx: { userAgent: IGA }, init: hook }); await A.evaluate(() => sessionStorage.clear()); await A.goto('about:blank'); await A.goto(BASE + '#t=' + TEAM); await A.waitForSelector('#app *'); await wait(1200);
@@ -351,9 +377,9 @@ if (want('9c')) {
   for (const [label, ua] of [['iPhone', IGI], ['Android', IGA]]) {
     const R = await phone('', { join: false, ctx: { userAgent: ua } }); await R.evaluate(() => sessionStorage.clear()); await R.goto('about:blank'); await R.goto(BASE + '#t=' + TEAM); await R.waitForSelector('#app *'); await wait(1800);
     const still1 = /Open this in (Safari|Chrome)/.test(await R.innerText('#app')) && !!(await R.$('[data-act=iab-open]'));
-    await R.click('[data-act=iab-open]').catch(() => {}); await wait(1500);
+    await R.click('[data-act=iab-open]').catch(() => {}); await wait(2600);
     const still2 = await R.evaluate(() => /Open this in (Safari|Chrome)/.test(document.body.innerText) && !!document.querySelector('[data-act=iab-open]'));
-    check(`Instagram on ${label}, real navigation with nothing stubbed: the guide is still there after the automatic try and after tapping the button`, still1 && still2, `auto=${still1} tap=${still2} url=${R.url().slice(0, 60)}`);
+    check(`Instagram on ${label}, real navigation with nothing stubbed: the guide is still there after any automatic try and after tapping the button`, still1 && still2, `auto=${still1} tap=${still2} url=${R.url().slice(0, 60)}`);
     check(`...and no errors`, noErr([R]), errs([R])); await R.ctx.close(); phones.pop();
   }
   // other in-app browsers: no automatic attempt (unknown behaviour), but the button works
@@ -391,7 +417,10 @@ if (want('9d')) {
   const I = await phone('', { join: false, ctx: ctxOpts(IGI), init: hook }); await I.evaluate(() => sessionStorage.clear()); await I.goto('about:blank'); await I.goto(BASE + '?t=' + TEAM); await I.waitForSelector('#app *'); await wait(1200);
   const txt = await I.innerText('#app'); const navs = await I.evaluate(() => window.__navs || []);
   check('Instagram browser: a ?t=CODE link shows the guide with the team code and does not join', /Open this in Safari/.test(txt) && txt.includes(TEAM.slice(0, 4) + '-' + TEAM.slice(4)) && (await I.evaluate(() => CC.state().team)) === '' && mock.get(['events', TEAM]) === null);
-  check('...the automatic handoff carries the code into the # part of the link for Safari', navs.length === 1 && navs[0][0].startsWith('x-safari-http') && navs[0][0].endsWith('#t=' + TEAM) && !navs[0][0].includes('?'), JSON.stringify(navs));
+  check('...nothing is tried automatically on iPhone', navs.length === 0, JSON.stringify(navs));
+  await tap(I, '[data-act=iab-open]'); await wait(300);
+  const navs2 = await I.evaluate(() => window.__navs || []);
+  check('...the Open in Safari button carries the code in the # part of the link (not the ?t= form)', navs2.length === 1 && navs2[0][0].startsWith('instagram://extbrowser/?url=') && decodeURIComponent(navs2[0][0].slice(28)) === BASE + '#t=' + TEAM, JSON.stringify(navs2));
   if (IS_CHROMIUM) { await tap(I, '[data-act=iab-copy]'); await wait(400); const clip = await I.evaluate(() => navigator.clipboard.readText()); check('...and Copy link gives the clean #t= form', clip === BASE + '#t=' + TEAM, clip); }
   await tap(I, '[data-act=iab-continue]');
   check('...and Continue anyway joins the team and removes the code from the address', await until(async () => (await I.evaluate(() => CC.state().team)) === TEAM, 6000) && new URL(I.url()).search === '', I.url());

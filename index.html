@@ -700,11 +700,12 @@ try { iabAck = localStorage.getItem(IABKEY) === '1'; } catch (e) {}
 function iabBlocking() { return !!IAB && !iabAck; }
 /* Best-effort handoff from the in-app browser to the phone's default browser. These URL schemes are not
    official, so it may not work in every app or OS version: the guide screen stays as the fallback.
-   iPhone: x-safari-https://...   Android: intent://...#Intent;scheme=https;...;end (no package, so the default browser is used) */
-function buildHandoff(os, base) {
+   Instagram on iPhone (2026): x-safari-https:// is blocked since Instagram 417, so a TAP triggers Instagram's own instagram://extbrowser/?url=...
+   Other iPhone apps: x-safari-https://...   Android: intent://...#Intent;scheme=https;...;end (no package, so the default browser is used) */
+function buildHandoff(os, base, app) {
   var m = String(base).match(/^(https?):\/\/(.*)$/i); if (!m) return '';
   var sch = m[1].toLowerCase();
-  if (os === 'ios') return 'x-safari-' + sch + '://' + m[2];
+  if (os === 'ios') return /^Instagram/.test(app || '') ? 'instagram://extbrowser/?url=' + encodeURIComponent(base) : 'x-safari-' + sch + '://' + m[2];
   if (os === 'android') return 'intent://' + m[2] + '#Intent;scheme=' + sch + ';S.browser_fallback_url=' + encodeURIComponent(base) + ';end';
   return '';
 }
@@ -720,11 +721,20 @@ function iabNavigate(url, how) {
 }
 function iabHandoff(auto) {
   if (!IAB) return;
-  var u = buildHandoff(IAB.os, iabBase()); if (!u) return;
+  var u = buildHandoff(IAB.os, iabBase(), IAB.name); if (!u) return;
   iabNavigate(u, auto && IAB.os === 'android' ? 'frame' : 'main');
 }
-function iabAutoTry() {                        // once per tab session, only in Instagram and Facebook (where this is known to be used)
-  if (!iabBlocking() || !/^(Instagram|Facebook)/.test(IAB.name)) return;
+/* After a tap on "Open in ...": if the page is still on screen a moment later, the app refused the jump. Say so and point at the routes that do work. */
+var iabFailed = false, iabLeft = false, iabTimer = null;
+window.addEventListener('pagehide', function () { iabLeft = true; });
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') iabLeft = true; });
+function iabTapOpen() {
+  iabFailed = false; iabLeft = false; clearTimeout(iabTimer);
+  toast('Opening your browser...'); iabHandoff(false);
+  iabTimer = setTimeout(function () { if (!iabLeft && view === 'iab' && iabBlocking()) { iabFailed = true; var tt = $('#toast'); if (tt) tt.remove(); render(); } }, 1800);
+}
+function iabAutoTry() {                        // once per tab session, Android only (iPhone apps only accept a tap)
+  if (!iabBlocking() || IAB.os !== 'android' || !/^(Instagram|Facebook)/.test(IAB.name)) return;
   var done = false;
   try { done = sessionStorage.getItem('ecomsoc-iab-tried') === '1'; sessionStorage.setItem('ecomsoc-iab-tried', '1'); } catch (e) {}
   if (done) return;
@@ -826,21 +836,23 @@ function screenJoin() {
 }
 
 function screenIab() {
-  var ios = IAB.os === 'ios', br = ios ? 'Safari' : 'Chrome';
-  var code = pendingCode || S.team;
+  var ios = IAB.os === 'ios', br = ios ? 'Safari' : 'Chrome', menu = ios ? '\u22EF' : '\u22EE';
+  var code = pendingCode || S.team, canShare = typeof navigator.share === 'function';
   return '<main class="main" style="padding-top:max(14px,var(--safe-t))">' +
     '<div class="center"><div class="banner-warn" style="display:inline-block;font-weight:800">You are inside ' + esc(IAB.name) + '\'s browser</div>' +
     '<h1 class="title" style="margin-top:12px">Open this in ' + br + '</h1>' +
     '<p class="sub" style="margin-top:6px">This built-in browser cannot work offline, can lose your tallies and cannot be added to your Home Screen.</p></div>' +
+    (iabFailed ? '<div class="banner bad" role="alert" id="iabfail"><div><b>' + esc(IAB.name) + ' did not open ' + br + '.</b><small>Use step 2 or 3 below.</small></div></div>' : '') +
     '<ol class="how">' +
       '<li><span>Tap <b>Open in ' + (ios ? 'Safari' : 'browser') + '</b> below. Say yes if ' + esc(IAB.name) + ' asks to leave the app.</span></li>' +
-      (ios ? '<li><span>Nothing happened? Tap the <b>\u22EF</b> menu or the <b>compass</b> icon, then <b>Open in Safari</b>.</span></li>'
-           : '<li><span>Nothing happened? Tap the <b>\u22EE</b> menu (top right), then <b>Open in Chrome</b> or <b>Open in browser</b>.</span></li>') +
-      '<li><span>Or tap <b>Copy link</b>, open ' + br + ' and paste it in the address bar.</span></li>' +
+      '<li><span>Nothing happens? Tap the <b>' + menu + '</b> menu at the top right of this screen, then <b>Open in ' + (ios ? 'external browser' : 'Chrome') + '</b> (it may say <b>Open in ' + (ios ? 'Safari' : 'browser') + '</b>).</span></li>' +
+      '<li><span>Still stuck? Tap <b>Copy link</b>, open ' + br + ', tap the address bar, paste and go.</span></li>' +
     '</ol>' +
     (code ? '<div class="card center"><div class="sub">Your team code</div><div style="font-size:34px;font-weight:900;letter-spacing:.1em">' + esc(fmtTeam(code)) + '</div></div>' : '') +
     '<div class="spacer"></div></main>' +
-    '<footer class="foot"><button class="btn pri" data-act="iab-open">Open in ' + (ios ? 'Safari' : 'browser') + '</button><div class="row"><button class="btn sm" data-act="iab-copy">' + ico('copy') + 'Copy link</button><button class="btn sm" data-act="iab-continue">Continue anyway</button></div></footer>';
+    '<footer class="foot"><button class="btn pri" data-act="iab-open">Open in ' + (ios ? 'Safari' : 'browser') + '</button>' +
+      '<div class="row"><button class="btn sm" data-act="iab-copy">' + ico('copy') + 'Copy link</button>' + (canShare ? '<button class="btn sm" data-act="iab-share">Share link</button>' : '') + '</div>' +
+      '<button class="txtbtn" data-act="iab-continue">Continue here anyway</button></footer>';
 }
 function iabBanner() {
   return IAB && iabAck ? '<button class="banner-warn iabbar" data-act="iab-help">Inside ' + esc(IAB.name) + '\'s browser: open in ' + (IAB.os === 'ios' ? 'Safari' : 'Chrome') + ' for offline mode. Tap for how.</button>' : '';
@@ -1228,11 +1240,12 @@ document.addEventListener('click', function (e) {
       else showModal('<h3>Copy by hand</h3><p class="sub">Select all the text below, copy it, and paste it into ' + (IAB && IAB.os === 'ios' ? 'Safari' : 'Chrome') + '.</p><textarea id="manual" readonly>' + esc(link) + '</textarea><button class="btn pri" data-act="modal-close">Close</button>');
     })(); break;
     case 'iab-continue': {
-      iabAck = true; try { localStorage.setItem(IABKEY, '1'); } catch (e) {}
+      iabAck = true; iabFailed = false; try { localStorage.setItem(IABKEY, '1'); } catch (e) {}
       var pc = pendingCode; pendingCode = '';
       if (addressHasCode()) stripCodeFromAddress();
       view = S.cur ? 'flow' : (SYNC_URL && !S.team && !S.skipJoin && !pc ? 'join' : 'home'); render(); applyJoinCode(pc); break; }
-    case 'iab-open': toast('Opening your browser...'); iabHandoff(false); break;
+    case 'iab-open': iabTapOpen(); break;
+    case 'iab-share': try { navigator.share({ title: 'Checkout Challenge', url: iabBase() }).catch(function () {}); } catch (e) {} break;
     case 'iab-help': view = 'iab'; render(); break;
   }
 });
@@ -1285,7 +1298,7 @@ window.addEventListener('storage', function (e) {
 });
 
 /* test and debugging hooks */
-window.CC = { buildHandoff: buildHandoff, detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
+window.CC = { buildHandoff: buildHandoff, iabTapOpen: iabTapOpen, detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
   commit: commit, remaining: remaining, totals: totals, syncState: syncState, net: net, tick: tick, pollNow: pollNow, syncOn: syncOn, unsent: unsent };
 
 /* join link: https://.../#t=ABCD-EFGH (the code never goes to the web host, it stays after the #).
