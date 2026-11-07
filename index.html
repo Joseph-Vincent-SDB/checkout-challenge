@@ -689,7 +689,7 @@ async function applyAdminKey(key) {
 function teamPhones() {
   var now = Date.now(), rows = [], ai = syncOn() ? S.adminInfo : null, aid = ai ? ai.id : '';
   var me = { id: S.id, me: true, admin: !!S.admin, name: S.label || 'This phone', c: S.c, last: S.last, hb: now,
-    state: syncOn() ? (syncState() === 'ok' ? 'online' : 'this phone, offline') : 'this phone', online: syncOn() ? syncState() === 'ok' : true, lost: false };
+    state: syncOn() ? (syncState() === 'ok' ? 'online' : (syncState() === 'connecting' ? 'this phone, connecting' : 'this phone, offline')) : 'this phone', online: syncOn() ? syncState() === 'ok' : true, lost: false };
   if (S.admin) rows.push(me);
   if (ai && !S.admin) {
     var pr = S.peers[aid], sn = net.seen[aid], as = net.adminSeen;
@@ -859,8 +859,8 @@ function pollNow(timeout) {
         else if (sn.hb !== r.hb || sn.rev !== r.rev) net.seen[k] = { hb: r.hb, rev: r.rev, t: now };
       }
       if (JSON.stringify(np) !== JSON.stringify(S.peers)) { S.peers = np; save(); }
-      try {                                                // the organiser's shared settings (every other check, about 4 s, to keep traffic gentle): a failure here never counts as a sharing problem
-        if (Date.now() - net.ctlPollAt >= 3500) {
+      try {                                                // the organiser's shared settings (not on every check, to keep traffic gentle): a failure here never counts as a sharing problem
+        if (Date.now() - net.ctlPollAt >= (S.admin ? 11500 : 5500)) {          // volunteers every third check (about 6 s); the organiser phone is the writer, so it only looks now and then
           net.ctlPollAt = Date.now();
           var cc = await http('GET', b + '/ctl.json', null, { timeout: to });
           if (S.team !== team || S.epoch !== ep) return;
@@ -870,7 +870,7 @@ function pollNow(timeout) {
       var mine = devs && devs[S.id], cloudRev = mine && typeof mine.rev === 'number' ? mine.rev : 0;
       if (S.acked > 0 && cloudRev < S.acked) S.acked = cloudRev;          // our last write did not land: send it again
       try {                                                // who the organiser phone is, and when it was last seen (every few seconds is enough)
-        if (Date.now() - (net.adminPollAt || 0) >= 30000) {               // a phone with a live record is seen every check; this record covers the time when it has none
+        if (!S.admin && Date.now() - (net.adminPollAt || 0) >= 30000) {               // a phone with a live record is seen every check; this record covers the time when it has none
           net.adminPollAt = Date.now();
           var ad = await http('GET', b + '/admin.json', null, { timeout: to });
           if (S.team !== team) return;

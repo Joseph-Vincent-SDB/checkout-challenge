@@ -80,7 +80,7 @@ async function mkVol(label, o = {}) { const V = await phone(label, { ...hashOpts
 async function openAdmin(A) { await tap(A, '[data-act=admin-open]'); await A.waitForSelector('#adm-live'); }
 async function goHome(A) { await tap(A, '[data-act=back-home]'); await A.waitForSelector('[data-act=next]'); }
 const bodyText = p => p.innerText('#app').then(t => t.replace(/\n/g, ' '));
-const cloudCtlIs = (pred) => until(async () => { const c = ctlCloud(); return c && pred(c); }, 9000);
+const cloudCtlIs = (pred) => until(async () => { const c = ctlCloud(); return c && pred(c); }, 16000);
 
 /* ---------- A. who is the admin ---------- */
 if (want('A')) {
@@ -152,7 +152,7 @@ if (want('B')) {
   check('A quick-message button fills the box', (await A.inputValue('#bmsg')) === 'Only 10 serves left' && /19 \/ 140/.test(await A.innerText('#bcount')));
   await A.fill('#bmsg', '  Free   <b>Thai</b> food  is nearly gone  '); await tap(A, '[data-act=adm-send]');
   check('The message reaches the database (spaces tidied, id and style stored)', await cloudCtlIs(c => c.msg && c.msg.t === 'Free <b>Thai</b> food is nearly gone' && c.msg.k === 'info' && /^[0-9a-f]{8}$/.test(c.msg.id)), JSON.stringify(ctlCloud()));
-  check('...both volunteer phones show it as a banner within a few seconds', await until(async () => (await V.isVisible('#bcast')) && (await V2.isVisible('#bcast')), 9000));
+  check('...both volunteer phones show it as a banner within a few seconds', await until(async () => (await V.isVisible('#bcast')) && (await V2.isVisible('#bcast')), 16000));
   check('...the text is shown as plain text (nothing is injected as HTML)', (await V.innerText('#bcast')).includes('<b>Thai</b>') && (await V.$$('#bcast b')).length === 0);
   check('...the admin phone does not get its own banner, and shows what is currently sent', !(await A.$('#bcast')) && /<b>Thai<\/b>/.test(await A.innerText('#admmsg')));
   await wait(600);
@@ -166,14 +166,14 @@ if (want('B')) {
   // important style, new message returns, mid-customer
   await toQuestion(V);
   await A.fill('#bmsg', 'Please check your bar is green'); await tap(A, '[data-act=adm-kind][data-k=warn]'); await tap(A, '[data-act=adm-send]');
-  check('A new (important) message shows again on a phone that dismissed the old one, even in the middle of a customer', await until(async () => await V.isVisible('#bcast.warn'), 9000) && !!(await V.$('.ans[data-act=answer]')));
+  check('A new (important) message shows again on a phone that dismissed the old one, even in the middle of a customer', await until(async () => await V.isVisible('#bcast.warn'), 16000) && !!(await V.$('.ans[data-act=answer]')));
   await tap(V, '[data-act=bcast-ok]'); await wait(300);
   await answer(V, true);
   check('Dismissing it mid-customer does not disturb the customer', !!(await V.$('#servebtn')) && !(await V.$('#bcast')));
   await tap(V, '#servebtn'); await V.waitForSelector('[data-act=next]');
   // clear
   await tap(A, '[data-act=adm-clear]');
-  check('Clear message removes it from the database and from phones that had not dismissed it', await cloudCtlIs(c => !c.msg) && await until(async () => !(await V2.$('#bcast')), 9000));
+  check('Clear message removes it from the database and from phones that had not dismissed it', await cloudCtlIs(c => !c.msg) && await until(async () => !(await V2.$('#bcast')), 16000));
   // long text and a tampered record
   check('The message box limits text to 140 characters', await A.evaluate(() => document.querySelector('#bmsg').maxLength) === 140);
   // offline phone gets it when it comes back
@@ -184,7 +184,7 @@ if (want('B')) {
   check('An offline phone does not see a message until it is back, then shows it', stillNone && await until(async () => await V2.isVisible('#bcast'), 12000));
   // tampered database record
   mock.db().events[TEAM].ctl = { rev: 500, paused: false, locked: false, mem: true, hot: 70, retries: 1, msg: { id: 'x', t: 'y'.repeat(140), k: 'warn' } };
-  await until(async () => (await V.evaluate(() => (CC.state().ctl || {}).rev)) === 500, 9000);
+  await until(async () => (await V.evaluate(() => (CC.state().ctl || {}).rev)) === 500, 16000);
   check('A message of the right shape from the database is shown; the app never trusts more than 140 characters', (await V.evaluate(() => CC.state().ctl.msg.t.length)) <= 140);
   check('No JS errors', noErr([A, V, V2]), errs([A, V, V2]));
   await reset();
@@ -200,7 +200,7 @@ if (want('C')) {
   await answer(V, true);
   check('A customer already in progress can finish (serve) while paused', !!(await V.$('#servebtn')));
   await tap(V, '#servebtn'); await V.waitForSelector('[data-act=next]');
-  check('Volunteer Home shows "Stall paused" and the Next customer button is disabled', await until(async () => /Stall paused/.test(await bodyText(V)) && await V.evaluate(() => !!document.querySelector('[data-act=next][disabled]')), 9000));
+  check('Volunteer Home shows "Stall paused" and the Next customer button is disabled', await until(async () => /Stall paused/.test(await bodyText(V)) && await V.evaluate(() => !!document.querySelector('[data-act=next][disabled]')), 16000));
   await V.click('[data-act=next]', { force: true, timeout: 1500 }).catch(() => {}); await wait(400);
   check('Pressing it anyway does not start a customer', (await st0(V)).cur === null && !(await V.$('[data-act=follow-new]')));
   await V.screenshot({ path: path.join(ROOT, 'tests', 'screenshots', 'admin-paused-volunteer.png') });
@@ -209,21 +209,21 @@ if (want('C')) {
   await goHome(A).catch(() => {}); await A.waitForSelector('[data-act=next]');
   check('The admin phone is not blocked while paused (and says so)', await A.evaluate(() => !document.querySelector('[data-act=next][disabled]')) && /paused for volunteers/.test(await bodyText(A)));
   await openAdmin(A); await tap(A, '[data-act=adm-pause]');
-  check('Resume enables Next customer again on volunteer phones', await until(async () => await V.evaluate(() => !!document.querySelector('[data-act=next]:not([disabled])')) && !/Stall paused/.test(await bodyText(V)), 9000));
+  check('Resume enables Next customer again on volunteer phones', await until(async () => await V.evaluate(() => !!document.querySelector('[data-act=next]:not([disabled])')) && !/Stall paused/.test(await bodyText(V)), 16000));
 
   await tap(A, '[data-act=adm-lock]');
   check('Lock reaches the database', await cloudCtlIs(c => c.locked === true));
   await tap(V, '[data-act=summary]'); await V.waitForSelector('#stats');
-  check('Locked: the volunteer Summary shows a locked note and no food +/-, total or reset controls', await until(async () => !!(await V.$('#lockednote')) && !(await V.$('[data-act="stock+"]')) && !(await V.$('[data-act="start+"]')) && !(await V.$('[data-hold]')), 9000));
+  check('Locked: the volunteer Summary shows a locked note and no food +/-, total or reset controls', await until(async () => !!(await V.$('#lockednote')) && !(await V.$('[data-act="stock+"]')) && !(await V.$('[data-act="start+"]')) && !(await V.$('[data-hold]')), 16000));
   check('...but the volunteer can still copy the summary and change this phone\'s name', !!(await V.$('[data-act=copy]')) && await V.evaluate(() => !document.querySelector('#label').disabled));
   await tap(A, '[data-act=back-home]'); await tap(A, '[data-act=summary]'); await A.waitForSelector('#stats');
   check('The admin phone keeps all of them while locked', !!(await A.$('[data-act="stock+"]')) && !!(await A.$('[data-hold]')));
   await V.screenshot({ path: path.join(ROOT, 'tests', 'screenshots', 'admin-locked-volunteer.png') });
   await tap(A, '[data-act=back-home]'); await openAdmin(A); await tap(A, '[data-act=adm-lock]');
-  check('Unlock gives the volunteer their controls back', await until(async () => !!(await V.$('[data-act="stock+"]')) && !!(await V.$('[data-hold]')) && !(await V.$('#lockednote')), 9000));
+  check('Unlock gives the volunteer their controls back', await until(async () => !!(await V.$('[data-act="stock+"]')) && !!(await V.$('[data-hold]')) && !(await V.$('#lockednote')), 16000));
   // a reset by a volunteer does not wipe the organiser's settings
   await tap(A, '[data-act=adm-pause]'); await cloudCtlIs(c => c.paused === true);
-  await until(async () => (await V.evaluate(() => CC.state().ctl && CC.state().ctl.paused)) === true, 9000);
+  await until(async () => (await V.evaluate(() => CC.state().ctl && CC.state().ctl.paused)) === true, 16000);
   await V.evaluate(() => CC.reset()); await wait(2500);
   check('A reset of the tallies keeps the organiser settings (still paused)', ctlCloud().paused === true && (await V.evaluate(() => CC.state().ctl.paused)) === true);
   check('No JS errors', noErr([A, V]), errs([A, V]));
@@ -235,39 +235,39 @@ if (want('D')) {
   const A = await mkAdmin(), V = await mkVol('Volunteer 1');
   await openAdmin(A);
   await tap(A, '[data-act=adm-mem]');
-  check('Switching the membership step off reaches the database and the volunteer phone', await cloudCtlIs(c => c.mem === false) && await until(async () => (await V.evaluate(() => CC.state().ctl && CC.state().ctl.mem)) === false, 9000));
+  check('Switching the membership step off reaches the database and the volunteer phone', await cloudCtlIs(c => c.mem === false) && await until(async () => (await V.evaluate(() => CC.state().ctl && CC.state().ctl.mem)) === false, 16000));
   await tap(V, '[data-act=next]'); await tap(V, '[data-act=follow-new]'); await V.waitForSelector('[data-act=reveal]');
   check('With it off, Follow goes straight to Reveal deal and the steps say 2 of 4', !(await V.$('#qrm')) && /step 2 of 4/i.test(await bodyText(V)));
   await V.evaluate(() => { CC.state().cur = null; CC.commit(); }); await V.reload(); await V.waitForSelector('[data-act=next]');
   // the organiser switches it back on while a customer is waiting at the follow step
   await tap(V, '[data-act=next]'); await V.waitForSelector('[data-act=follow-new]');
-  await tap(A, '[data-act=adm-mem]'); await cloudCtlIs(c => c.mem === true); await until(async () => (await V.evaluate(() => CC.state().ctl.mem)) === true, 9000);
+  await tap(A, '[data-act=adm-mem]'); await cloudCtlIs(c => c.mem === true); await until(async () => (await V.evaluate(() => CC.state().ctl.mem)) === true, 16000);
   await tap(V, '[data-act=follow-new]');
   check('Switching it back on: the next customer sees the membership QR (step 2 of 5)', await V.waitForSelector('#qrm', { timeout: 4000 }).then(() => true).catch(() => false) && /step 2 of 5/i.test(await bodyText(V)));
   await V.evaluate(() => { CC.state().cur = null; CC.commit(); }); await V.reload(); await V.waitForSelector('[data-act=next]');
   // switching off while a customer is on the membership step
   await tap(V, '[data-act=next]'); await tap(V, '[data-act=follow-new]'); await V.waitForSelector('#qrm');
-  await tap(A, '[data-act=adm-mem]'); await cloudCtlIs(c => c.mem === false); await until(async () => (await V.evaluate(() => CC.state().ctl.mem)) === false, 9000);
+  await tap(A, '[data-act=adm-mem]'); await cloudCtlIs(c => c.mem === false); await until(async () => (await V.evaluate(() => CC.state().ctl.mem)) === false, 16000);
   await V.reload(); await V.waitForSelector('#app *'); await wait(400);
   check('If the step is switched off while a customer is on it, the customer moves on to Reveal deal', !!(await V.$('[data-act=reveal]')) && !(await V.$('#qrm')));
   await V.evaluate(() => { CC.state().cur = null; CC.commit(); }); await V.reload(); await V.waitForSelector('[data-act=next]');
-  await A.evaluate(() => CC.adminSet({ mem: true })); await cloudCtlIs(c => c.mem === true); await until(async () => (await V.evaluate(() => CC.state().ctl.mem)) === true, 9000);
+  await A.evaluate(() => CC.adminSet({ mem: true })); await cloudCtlIs(c => c.mem === true); await until(async () => (await V.evaluate(() => CC.state().ctl.mem)) === true, 16000);
   // hot deal chance
   for (let i = 0; i < 4; i++) await tap(A, '[data-act="adm-hot+"]');
   check('HOT DEAL chance: +10 steps stop at 100 and reach the database', await cloudCtlIs(c => c.hot === 100) && /100%/.test(await A.innerText('#adm-ctl')));
-  await until(async () => (await V.evaluate(() => CC.state().ctl.hot)) === 100, 9000);
+  await until(async () => (await V.evaluate(() => CC.state().ctl.hot)) === 100, 16000);
   const diffs = await V.evaluate(() => Array.from({ length: 24 }, () => { const id = CC.drawQuestion(); return CC.QUESTIONS.find(q => q.id === id).difficulty; }));
   check('At 100% every draw is a HOT DEAL (easy) question', diffs.every(d => d === 'easy'), diffs.join(','));
-  await A.evaluate(() => CC.adminSet({ hot: 0 })); await until(async () => (await V.evaluate(() => CC.state().ctl.hot)) === 0, 9000);
+  await A.evaluate(() => CC.adminSet({ hot: 0 })); await until(async () => (await V.evaluate(() => CC.state().ctl.hot)) === 0, 16000);
   const diffs0 = await V.evaluate(() => Array.from({ length: 24 }, () => { const id = CC.drawQuestion(); return CC.QUESTIONS.find(q => q.id === id).difficulty; }));
   check('At 0% every draw is a FULL PRICE (hard) question', diffs0.every(d => d === 'hard'), diffs0.join(','));
   await A.evaluate(() => CC.adminSet({ hot: 70 }));
   // retries
-  await A.evaluate(() => CC.adminSet({ retries: 0 })); await until(async () => (await V.evaluate(() => CC.state().ctl.retries)) === 0, 9000);
+  await A.evaluate(() => CC.adminSet({ retries: 0 })); await until(async () => (await V.evaluate(() => CC.state().ctl.retries)) === 0, 16000);
   await toQuestion(V); await answer(V, false);
   check('With 0 retries a wrong answer ends the turn: no "try one more" button, counted as lost', !(await V.$('[data-act=retry]')) && (await st0(V)).c.lost === 1, await V.evaluate(() => document.querySelector('.foot').innerText.replace(/\n/g, ' | ')));
   await V.evaluate(() => { CC.state().cur = null; CC.commit(); }); await V.reload(); await V.waitForSelector('[data-act=next]');
-  await A.evaluate(() => CC.adminSet({ retries: 2 })); await until(async () => (await V.evaluate(() => CC.state().ctl.retries)) === 2, 9000);
+  await A.evaluate(() => CC.adminSet({ retries: 2 })); await until(async () => (await V.evaluate(() => CC.state().ctl.retries)) === 2, 16000);
   await toQuestion(V); await answer(V, false);
   let r1 = !!(await V.$('[data-act=retry]')); await tap(V, '[data-act=retry]'); await V.waitForSelector('.ans[data-act=answer]'); await wait(400); await answer(V, false);
   let r2 = !!(await V.$('[data-act=retry]')); await tap(V, '[data-act=retry]'); await V.waitForSelector('.ans[data-act=answer]'); await wait(400); await answer(V, false);
@@ -296,16 +296,16 @@ if (want('E')) {
   check('Several quick changes in a row end with the last value of each', await cloudCtlIs(c => c.paused === true && c.hot === 60), JSON.stringify(ctlCloud()));
   await A.evaluate(() => CC.adminSet({ paused: false, hot: 70 })); await cloudCtlIs(c => c.paused === false && c.hot === 70);
   // odd data in the database
-  await until(async () => (await V.evaluate(() => CC.state().ctl && CC.state().ctl.paused === false && CC.state().ctl.hot === 70)), 9000);
+  await until(async () => (await V.evaluate(() => CC.state().ctl && CC.state().ctl.paused === false && CC.state().ctl.hot === 70)), 16000);
   mock.db().events[TEAM].ctl = 'garbage';
   await wait(2800);
   check('Text instead of a settings record is ignored by phones', (await V.evaluate(() => CC.state().ctl)) !== null && (await V.evaluate(() => CC.state().ctl.paused)) === false);
   mock.db().events[TEAM].ctl = { rev: 600, paused: 'yes', locked: 1, mem: 'no', hot: 'lots', retries: 99, msg: { id: '<script>', t: 5, k: 'x' } };
-  await until(async () => (await V.evaluate(() => CC.state().ctl.rev)) === 600, 9000);
+  await until(async () => (await V.evaluate(() => CC.state().ctl.rev)) === 600, 16000);
   const cl = await V.evaluate(() => CC.state().ctl);
   check('Wrong types and out-of-range values are cleaned (not paused, not locked, membership on, 70%, at most 2 retries, bad message dropped)', cl.paused === false && cl.locked === false && cl.mem === true && cl.hot === 70 && cl.retries === 2 && cl.msg === null, JSON.stringify(cl));
   delete mock.db().events[TEAM].ctl;
-  check('If the settings record is deleted, phones go back to the normal defaults', await until(async () => (await V.evaluate(() => CC.state().ctl)) === null, 9000) && (await V.evaluate(() => CC.CONFIG.hotDealPercent)) === 70);
+  check('If the settings record is deleted, phones go back to the normal defaults', await until(async () => (await V.evaluate(() => CC.state().ctl)) === null, 16000) && (await V.evaluate(() => CC.CONFIG.hotDealPercent)) === 70);
   // a volunteer phone cannot write the settings, even by calling the app function
   const wrote = await V.evaluate(() => CC.adminSet({ paused: true })); await wait(900);
   check('A volunteer phone cannot change the organiser settings even if the app function is called', wrote === false && !(ctlCloud() && ctlCloud().paused));
@@ -317,7 +317,7 @@ if (want('E')) {
 if (want('F')) {
   const A = await mkAdmin(), V = await mkVol('Volunteer 1'), V2 = await mkVol('Volunteer 2');
   await fakeServe(V, 6); await fakeServe(V2, 4);
-  await until(async () => (await rem(A)) === 70, 9000);
+  await until(async () => (await rem(A)) === 70, 16000);
   await openAdmin(A);
   const t = await bodyText(A);
   check('Console: food left, phones online and customers match the team totals', await until(async () => /70\s*Food left/.test(await bodyText(A)) && /3 \/ 3\s*Phones online/.test(await bodyText(A)) && /10\s*Customers/.test(await bodyText(A)), 6000), t.slice(0, 300));
@@ -331,7 +331,7 @@ if (want('F')) {
   const none = await A.evaluate(() => { CC.samples().length = 0; return CC.paceInfo(Date.now() - 50 * 3600000); });
   check('Pace with no history does not invent a number', none.kind === 'none' || none.perHr === 0, JSON.stringify(none));
   // alerts
-  await fakeServe(V, 58); await until(async () => (await rem(A)) === 12, 9000);
+  await fakeServe(V, 58); await until(async () => (await rem(A)) === 12, 16000);
   check('Alert: "Running low" at 15 or fewer', await A.evaluate(() => CC.adminAlerts().some(a => /Running low: 12/.test(a.t))));
   await A.evaluate(() => { const k = Object.keys(CC.state().peers)[0]; CC.net.seen[k].t = Date.now() - 80000; });
   check('Alert: a phone that was online and went quiet is reported by name', await A.evaluate(() => CC.adminAlerts().some(a => /went offline/.test(a.t))));
@@ -340,7 +340,7 @@ if (want('F')) {
   const rep = await A.evaluate(() => CC.adminReport());
   check('Admin report: contains the normal summary plus pace, win rate, settings and every phone', /EcomSoc Checkout Challenge summary/.test(rep) && /ADMIN REPORT/.test(rep) && /Settings now: stall open, volunteer settings unlocked, membership step on, HOT DEAL chance 70%, retries 1/.test(rep) && /Volunteer 2: /.test(rep) && /Win rate/.test(rep), rep.split('\n').slice(-8).join(' / '));
   // sold out and over-served
-  await fakeServe(V, 12); await until(async () => (await rem(A)) === 0, 9000);
+  await fakeServe(V, 12); await until(async () => (await rem(A)) === 0, 16000);
   check('Alert: sold out', await A.evaluate(() => CC.adminAlerts().some(a => /sold out/.test(a.t))));
   await goHome(A); await wait(400);
   check('Home: the console button shows a red alert count', await A.isVisible('#adminrow .alertn'));
@@ -362,7 +362,7 @@ if (want('G')) {
   await A.evaluate(() => { document.querySelector('.main').scrollTop = 1e5; }); await wait(200);
   check('The last button (Copy admin report) can be reached by scrolling', await A.evaluate(() => { const b = document.querySelector('[data-act=adm-copy]').getBoundingClientRect(); return b.bottom <= innerHeight + 1 && b.top >= 0; }));
   await A.fill('#bmsg', 'x'.repeat(140)); await A.evaluate(() => document.querySelector('[data-act=adm-kind][data-k=warn]').click()); await A.evaluate(() => document.querySelector('[data-act=adm-send]').click());
-  await until(async () => await V.isVisible('#bcast'), 9000); await wait(600);
+  await until(async () => await V.isVisible('#bcast'), 16000); await wait(600);
   const bl = await V.evaluate(() => { const r = document.querySelector('#bcast').getBoundingClientRect(), b = document.querySelector('#bcast button').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, vh: innerHeight, vw: innerWidth, bh: b.height }; });
   check('A 140-character important message fits the 320 px screen (banner fully on screen, Got it 48 px)', bl.top >= 0 && bl.left >= 0 && bl.right <= bl.vw && bl.bottom <= bl.vh && bl.bh >= 47.5, JSON.stringify(bl));
   await V.screenshot({ path: path.join(ROOT, 'tests', 'screenshots', 'admin-broadcast-320.png') });
@@ -390,11 +390,11 @@ if (want('I')) {
   const A = await mkAdmin(), V = await mkVol('Volunteer 1'), V2 = await mkVol('Volunteer 2');
   await fakeServe(V, 6); await fakeServe(V2, 4);
   await V.evaluate(() => { const S = CC.state(); S.c.members = 3; CC.commit(); });
-  await until(async () => (await rem(V2)) === 70 && (await rem(A)) === 70, 9000);
+  await until(async () => (await rem(V2)) === 70 && (await rem(A)) === 70, 16000);
   const tiles = async (p, sel = '#livegrid') => (await p.innerText(sel)).replace(/\s+/g, ' ').trim();
   const want6 = (t, n = '2/2') => new RegExp('^70 Food left ' + n + ' Phones online - Serves').test(t) && /100% Win rate 10 New follows 3 New members$/.test(t);
   const unusedOld = t => /^70 Food left 3\/3 Phones online - Serves\/hour 100% Win rate 10 New follows 3 New members$/.test(t);
-  let tv = ''; await until(async () => want6(tv = await tiles(V2)), 9000);
+  let tv = ''; await until(async () => want6(tv = await tiles(V2)), 16000);
   check('Volunteer Home shows food left, phones online (volunteer phones only), serves per hour, win rate, new follows and new members', want6(tv), tv);
   check('...the admin phone shows the same numbers, and counts every phone including itself (3/3)', want6(await tiles(A), '3/3'), await tiles(A));
   await tap(V2, '[data-act=summary]'); await V2.waitForSelector('#livegrid2');
@@ -403,7 +403,7 @@ if (want('I')) {
   await V2.evaluate(() => { const s = CC.samples(); s.length = 0; s.push([Date.now() - 10 * 60000, 0]); });
   check('Serves per hour appears on a volunteer phone from its own readings (10 serves in 10 minutes is about 60 an hour)', await until(async () => { const m = (await tiles(V2)).match(/(\d+) Serves\/hour/); return m && +m[1] >= 50 && +m[1] <= 70; }, 6000), await tiles(V2));
   await fakeServe(V, 1); await V.evaluate(() => { const S = CC.state(); S.c.members++; CC.commit(); });
-  check('The numbers update on other phones within seconds when someone serves (food 69, 11 new follows, 4 new members)', await until(async () => /^69 Food left 2\/2 Phones online/.test(await tiles(V2)) && /11 New follows 4 New members$/.test(await tiles(V2)), 9000), await tiles(V2));
+  check('The numbers update on other phones within seconds when someone serves (food 69, 11 new follows, 4 new members)', await until(async () => /^69 Food left 2\/2 Phones online/.test(await tiles(V2)) && /11 New follows 4 New members$/.test(await tiles(V2)), 16000), await tiles(V2));
   await V2.setViewportSize({ width: 320, height: 568 }); await wait(250);
   const geo = await V2.evaluate(() => { const g = document.querySelector('#livegrid').getBoundingClientRect(); return { hs: document.documentElement.scrollWidth > innerWidth + 1, l: g.left, r: g.right, vw: innerWidth }; });
   check('Home with the live numbers fits a 320 px wide phone', !geo.hs && geo.l >= 0 && geo.r <= geo.vw, JSON.stringify(geo));
@@ -417,15 +417,15 @@ if (want('I')) {
 if (want('J')) {
   const A = await mkAdmin(), V = await mkVol('Volunteer 1');
   const adminId = (await st0(A)).id;
-  check('The admin phone writes who it is to a record that a reset does not clear', await until(async () => { const a = mock.get(['events', TEAM, 'admin']); return a && a.id === adminId && a.l === ADMLABEL && typeof a.hb === 'number'; }, 9000), JSON.stringify(mock.get(['events', TEAM, 'admin'])));
+  check('The admin phone writes who it is to a record that a reset does not clear', await until(async () => { const a = mock.get(['events', TEAM, 'admin']); return a && a.id === adminId && a.l === ADMLABEL && typeof a.hb === 'number'; }, 16000), JSON.stringify(mock.get(['events', TEAM, 'admin'])));
   const rows = async p => (await p.$$eval('#phones .kv', els => els.map(e => e.innerText.replace(/\s+/g, ' ').trim())));
   await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
-  await until(async () => /Joseph's Phone \(Admin\)/.test((await rows(V))[0] || ''), 9000);
+  await until(async () => /Joseph's Phone \(Admin\)/.test((await rows(V))[0] || ''), 16000);
   let r = await rows(V);
   check('Volunteer Summary: "Joseph\'s Phone (Admin)" is the first row with its numbers only (no online/offline, no last seen), then this phone', /^Joseph's Phone \(Admin\) 0 customers 0 served$/.test(r[0]) && /^Volunteer 1 \(you\)/.test(r[1]), JSON.stringify(r));
   const seenOnline = { row: r[0], tiles: (await V.innerText('#livegrid2')).replace(/\s+/g, ' ') };
   await tap(A, '[data-act=summary]'); await A.waitForSelector('#phones');
-  await until(async () => (await rows(A)).length >= 2, 9000);
+  await until(async () => (await rows(A)).length >= 2, 16000);
   const rA = await rows(A);
   check('The admin phone sees its own row first too, and every other phone after it', /^Joseph's Phone \(Admin\) \(you\)/.test(rA[0]) && /Volunteer 1/.test(rA[1]), JSON.stringify(rA));
   await V.screenshot({ path: path.join(ROOT, 'tests', 'screenshots', 'phones-list-admin-first.png') });
@@ -439,7 +439,7 @@ if (want('J')) {
   check('...and the volunteer screens are identical whether the admin phone is online or offline (row and phones-online tile, 1/1 volunteer phone)', r[0] === seenOnline.row && tilesNow.replace(/\d+ Serves\/hour|- Serves\/hour/, '') === seenOnline.tiles.replace(/\d+ Serves\/hour|- Serves\/hour/, '') && /1\/1 Phones online/.test(tilesNow), seenOnline.tiles + ' || ' + tilesNow);
   check('...and the "Shared: N phones online" line does not count the admin phone either', /Shared: 1 phone online/.test(await V.innerText('#syncrow')), await V.innerText('#syncrow'));
   // a reset starts a new round with no record for the admin phone: it must still be listed
-  await V.evaluate(() => CC.reset()); await until(async () => (await V.evaluate(() => CC.state().epoch)) !== 'e0', 9000); await wait(2600);
+  await V.evaluate(() => CC.reset()); await until(async () => (await V.evaluate(() => CC.state().epoch)) !== 'e0', 16000); await wait(2600);
   await tap(V, '[data-act=back-home]').catch(() => {}); await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
   r = await rows(V);
   check('After a reset (new round, no record yet for the admin phone) it is still the first row, with 0 customers', /^Joseph's Phone \(Admin\) 0 customers 0 served$/.test(r[0]), JSON.stringify(r));
@@ -452,7 +452,7 @@ if (want('J')) {
   // a phone that joins late sees it too (the organiser phone was last seen five minutes ago)
   mock.db().events[TEAM].admin.hb = Date.now() - 5 * 60000;
   const V3 = await mkVol('Volunteer 3'); await tap(V3, '[data-act=summary]'); await V3.waitForSelector('#phones');
-  await until(async () => /^Joseph's Phone \(Admin\)/.test((await rows(V3))[0] || ''), 9000);
+  await until(async () => /^Joseph's Phone \(Admin\)/.test((await rows(V3))[0] || ''), 16000);
   r = await rows(V3);
   check('A phone that joins later also sees the organiser phone first, with no presence information', /^Joseph's Phone \(Admin\) 0 customers 0 served$/.test(r[0]) && /Volunteer 3 \(you\)/.test(r[1]), JSON.stringify(r));
   // the admin phone comes back
