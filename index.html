@@ -694,8 +694,8 @@ function teamPhones() {
   if (ai && !S.admin) {
     var pr = S.peers[aid], sn = net.seen[aid], as = net.adminSeen;
     var on = !!((as && as.t && now - as.t < 45000) || (sn && now - sn.t < 45000));
-    rows.push({ id: aid, me: false, admin: true, name: String(CONFIG.adminLabel).slice(0, 24), c: pr ? pr.c : zeroC(), last: pr ? pr.last : null, hb: ai.hb,
-      state: on ? 'online' : 'offline, last seen ' + ago(ai.hb), online: on, lost: false });
+    rows.push({ id: aid, me: false, admin: true, hidePresence: true, name: String(CONFIG.adminLabel).slice(0, 24), c: pr ? pr.c : zeroC(), last: pr ? pr.last : null, hb: ai.hb,
+      state: '', online: on, lost: false });          // volunteer phones are never told whether the organiser phone is online or when it was last seen
   }
   if (!S.admin) rows.push(me);
   if (syncOn()) for (var k in S.peers) {
@@ -711,7 +711,7 @@ function paceBasis() {
   return pc.kind === 'recent' ? 'Serves per hour from the last ' + pc.mins + ' minutes on this phone.' : pc.kind === 'overall' ? 'Serves per hour since the first customer.' : 'Serves per hour appears after a few minutes of serving.';
 }
 function liveGrid() {
-  var c = totals().c, pc = paceInfo(), rows = teamPhones(), on = rows.filter(function (r) { return r.online; }).length;
+  var c = totals().c, pc = paceInfo(), rows = teamPhones().filter(function (r) { return S.admin || !r.hidePresence; }), on = rows.filter(function (r) { return r.online; }).length;   // volunteer phones do not count the organiser phone, so its presence cannot be worked out from the totals
   function t(n, l) { return '<div class="tally"><b>' + n + '</b><span>' + l + '</span></div>'; }
   return t(Math.max(0, remaining()), 'Food left') + t(on + '/' + rows.length, 'Phones online') + t(pc.kind === 'none' ? '-' : pc.perHr, 'Serves/hour') +
     t(pct(c.won, c.customers), 'Win rate') + t(c.follows, 'New follows') + t(CONFIG.membershipUrl ? c.members : '-', 'New members');
@@ -780,7 +780,7 @@ function syncState() {
 }
 function onlineCount() {
   var n = 1, now = Date.now();
-  for (var k in S.peers) { var sn = net.seen[k]; if (sn && now - sn.t < 45000) n++; }
+  for (var k in S.peers) { if (!S.admin && S.adminInfo && k === S.adminInfo.id) continue; var sn = net.seen[k]; if (sn && now - sn.t < 45000) n++; }   // the organiser phone is not counted on volunteer phones
   return n;
 }
 async function http(method, url, body, o) {
@@ -1301,7 +1301,7 @@ function statGrid() {
 }
 function phonesHtml() {
   return teamPhones().map(function (r) {
-    return '<div class="kv"><span>' + esc(r.name) + (r.me ? ' (you)' : '') + '<br><small class="muted">' + esc(r.state) + '</small></span><span class="r">' + r.c.customers + ' customers<br>' + r.c.served + ' served</span></div>';
+    return '<div class="kv"><span>' + esc(r.name) + (r.me ? ' (you)' : '') + (r.hidePresence ? '' : '<br><small class="muted">' + esc(r.state) + '</small>') + '</span><span class="r">' + r.c.customers + ' customers<br>' + r.c.served + ' served</span></div>';
   }).join('');
 }
 function summaryText() {

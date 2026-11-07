@@ -75,7 +75,7 @@ Test engines: Chromium (Chrome and Android) and WebKit (the engine inside every 
 | Smallest phone (320 x 568) | Console and banner fit, buttons 48 px or more, console scrolls | yes |
 | Admin phone: closed page, fresh session, damaged saved data, only the cookie or only the second stored copy left | Still the admin with the fixed name (no sign-out exists) | yes |
 | Admin key changed in the code (`adminHash`) | Old admin phones stop being admin; a brand-new phone is never admin | yes |
-| Organiser phone offline, or no record of it in a new round after a reset | Still listed first on every phone as `Joseph's Phone (Admin)`, offline with when it was last seen; a phone that reloads with no connection shows the same from memory; a phone that joins later sees it too | yes |
+| Organiser phone offline, or no record of it in a new round after a reset | Still listed first on every phone as `Joseph's Phone (Admin)`; volunteer phones show no online, offline or last-seen information for it and do not count it in "phones online" (the screens look the same whether it is online or not); a phone that reloads with no connection shows the same from memory; a phone that joins later sees it too | yes |
 | Odd or spoofed organiser record | The name shown is always the fixed organiser name; wrong shapes are ignored | yes |
 | Live numbers (food left, phones online, serves per hour, win rate, new follows, new members) | Same numbers on every phone and the organiser phone, update within seconds, fit 320 px wide | yes |
 
