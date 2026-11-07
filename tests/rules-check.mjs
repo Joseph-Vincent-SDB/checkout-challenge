@@ -93,6 +93,19 @@ await denied('Settings under a made-up short team code are refused', 'PUT', 'eve
 await allowed('Clearing the message (settings without msg) is accepted', 'PUT', C, ctlOk({ rev: 4 }));
 { const r = await call('GET', C); check('The cleared message is gone', r.json && r.json.msg === undefined && r.json.rev === 4, JSON.stringify(r.json)); }
 
+// organiser phone record (admin)
+const AD = `${T}/admin`;
+await allowed('Valid organiser-phone record is accepted', 'PUT', AD, { id: 'abcdef123456', l: "Joseph's Phone (Admin)", hb: Date.now() });
+{ const r = await call('GET', AD); check('It reads back for anyone with the team code', r.json && r.json.id === 'abcdef123456' && r.json.l === "Joseph's Phone (Admin)", JSON.stringify(r.json)); }
+await denied('Organiser record without a heartbeat time is refused', 'PUT', AD, { id: 'abcdef123456', l: 'x' });
+await denied('Organiser record with a too-short id is refused', 'PUT', AD, { id: 'abc', l: 'x', hb: 1 });
+await denied('Organiser record with a 30 character name is refused', 'PUT', AD, { id: 'abcdef123456', l: 'n'.repeat(30), hb: 1 });
+await denied('Organiser record with an extra field is refused', 'PUT', AD, { id: 'abcdef123456', l: 'x', hb: 1, evil: 1 });
+await denied('Organiser record with text for the time is refused', 'PUT', AD, { id: 'abcdef123456', l: 'x', hb: 'now' });
+await denied('Organiser record under a made-up short team code is refused', 'PUT', 'events/ABC/admin', { id: 'abcdef123456', l: 'x', hb: 1 });
+await allowed('The organiser record is not touched by a reset (meta change leaves it)', 'PUT', `${T}/meta`, { epoch: 'e1', startStock: 80, resetAt: { '.sv': 'timestamp' }, by: 'Phone A' });
+{ const r = await call('GET', AD); check('...it is still there after the new round', r.json && r.json.id === 'abcdef123456', JSON.stringify(r.json)); }
+
 // CORS (browser calls from the GitHub Pages site)
 {
   const r = await fetch(`${DB}/${T}/meta.json`, { method: 'OPTIONS', headers: { origin: 'https://joseph-vincent-sdb.github.io', 'access-control-request-method': 'PUT', 'access-control-request-headers': 'content-type' } });
@@ -100,7 +113,7 @@ await allowed('Clearing the message (settings without msg) is accepted', 'PUT', 
   check('Browsers on the GitHub Pages site are allowed to call it (CORS)', r.status < 300 && (allow === '*' || allow === 'https://joseph-vincent-sdb.github.io'), `HTTP ${r.status} allow-origin=${allow}`);
 }
 // clean up
-await call('DELETE', D); await call('DELETE', `${T}/meta`); await call('DELETE', C);
+await call('DELETE', D); await call('DELETE', `${T}/meta`); await call('DELETE', C); await call('DELETE', AD);
 { const r = await call('GET', T); check('Test data removed', r.status === 200 && (r.json === null), JSON.stringify(r.json)); }
 
 if (mock) await mock.close();

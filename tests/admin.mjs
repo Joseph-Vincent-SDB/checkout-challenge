@@ -43,7 +43,7 @@ async function phone(label, o = {}) {
   if (label) await page.evaluate(l => { CC.state().label = l; CC.commit(); }, label);
   phones.push(page); return page;
 }
-async function closeAll() { for (const p of phones.splice(0)) await p.ctx.close().catch(() => {}); }
+async function closeAll() { for (const p of phones.splice(0)) { rejs.push(...(await p.evaluate(() => window.__rej || []).catch(() => []))); await p.ctx.close().catch(() => {}); } }
 async function reset() { await closeAll(); mock.reset(); TEAM = newTeam(); }
 const rem = p => p.evaluate(() => CC.remaining()); const st = p => p.evaluate(() => CC.syncState()); const unsent = p => p.evaluate(() => CC.unsent());
 const tap = async (p, sel) => { await p.waitForSelector(sel, { state: 'visible' }); await wait(330); await p.click(sel); };
@@ -52,8 +52,10 @@ const toQuestion = async p => { await tap(p, '[data-act=next]'); await tap(p, '[
 const answer = async (p, ok = true) => { const q = await p.evaluate(() => CC.QUESTIONS.find(x => x.id === CC.state().cur.qid)); const pick = ok ? q.answer : ['A', 'B', 'C', 'D'].find(l => l !== q.answer); await p.click(`.ans[data-k=${pick}]`); await p.waitForSelector('#result'); };
 const cloudDevices = () => { const m = mock.get(['events', TEAM, 'meta']); return mock.get(['events', TEAM, 'epochs', (m && m.epoch) || 'e0', 'devices']) || {}; };
 const cloudServed = () => Object.values(cloudDevices()).reduce((a, d) => a + d.c.served, 0);
-const noErr = ps => ps.every(p => p.errors.length === 0);
-const errs = ps => ps.flatMap(p => p.errors).join(' | ');
+const NOISE = /due to access control checks|Fetch API cannot load/;       // WebKit logs a cancelled or refused fetch like this even though the app handles it; real unhandled rejections are counted separately below
+const noErr = ps => ps.every(p => p.errors.filter(e => !NOISE.test(e)).length === 0);
+const errs = ps => ps.flatMap(p => p.errors).filter(e => !NOISE.test(e)).join(' | ');
+const rejs = [];
 
 
 /* ================= organiser (admin) phone tests ================= */
@@ -118,9 +120,25 @@ if (want('A')) {
   await V.fill('#adminkey', TESTKEY.slice(0, 4) + '-' + TESTKEY.slice(4, 8) + ' ' + TESTKEY.slice(8).toLowerCase()); await V.press('#adminkey', 'Enter');
   check('Organiser sign-in with the right key (pasted with dashes, spaces, lower case) makes it the admin with the fixed name', await until(async () => (await st0(V)).admin === true && (await st0(V)).label === ADMLABEL, 6000));
   await V.waitForSelector('[data-act=admin-open]');
-  await tap(V, '[data-act=admin-out]'); await tap(V, '[data-act=admin-out-yes]'); await wait(500);
-  check('Signing out of admin makes it a normal volunteer phone again (name cleared)', (await st0(V)).admin === false && (await st0(V)).label === '' && !(await V.$('[data-act=admin-open]')));
-  check('No JS errors (volunteer, wrong-key, malformed and sign-in phones)', noErr([V, W, M, N]), errs([V, W, M, N]));
+  check('There is no sign-out: an admin phone keeps its admin status (no sign-out button in Summary)', !(await V.$('[data-act=admin-out]')) && !/sign out/i.test(await V.innerText('#app')));
+  // "always the admin on this device": a fresh session, a closed browser, damaged or cleared data
+  const state = await A.ctx.storageState();
+  const reopen = async (st, extra = {}) => { const P = await phone('', { join: false, init: initHash, initArg: TESTHASH, ...extra, ctx: { storageState: st, ...(extra.ctx || {}) } }); await P.goto('about:blank'); await P.goto(BASE); await P.waitForSelector('#app *'); await wait(500); return P; };
+  const R1 = await reopen(state);
+  check('A fresh session (browser closed and opened again) is still the admin, with the fixed name and no key needed', (await st0(R1)).admin === true && (await st0(R1)).label === ADMLABEL && (await st0(R1)).team === TEAM && await R1.isVisible('[data-act=admin-open]'));
+  const R2 = await reopen({ cookies: state.cookies, origins: [] });
+  check('If the app\'s stored data is wiped but the long-lived cookie remains, it is still the admin', (await st0(R2)).admin === true && (await st0(R2)).label === ADMLABEL);
+  const lockItem = state.origins.flatMap(o => o.localStorage).filter(i => i.name === 'ecomsoc-admin-lock');
+  const R3 = await reopen({ cookies: [], origins: [{ origin: new URL(BASE).origin, localStorage: lockItem }] });
+  check('If only the second stored copy remains, it is still the admin', lockItem.length === 1 && (await st0(R3)).admin === true);
+  await A.evaluate(k => { localStorage.setItem(k, '{broken json'); }, SKEY); await A.reload(); await A.waitForSelector('#app *'); await wait(400);
+  check('If the main saved data is damaged, the admin status comes back from the extra copies', (await st0(A)).admin === true && (await st0(A)).label === ADMLABEL);
+  const sha = k => crypto.createHash('sha256').update(k).digest('hex');
+  const R4 = await reopen(state, { init: initHash, initArg: sha(OTHERKEY) });
+  check('A new admin key (changed hash) ends the old admin phones: nobody stays admin by accident', (await st0(R4)).admin === false && !(await R4.$('[data-act=admin-open]')));
+  const R5 = await phone('', { join: false, ...hashOpts }); await R5.goto('about:blank'); await R5.goto(BASE); await R5.waitForSelector('#app *'); await wait(400);
+  check('A brand-new phone with no data is never admin', (await st0(R5)).admin === false);
+  check('No JS errors (volunteer, wrong-key, malformed, sign-in and reopened phones)', noErr([V, W, M, N, R1, R2, R3, R4, R5, A]), errs([V, W, M, N, R1, R2, R3, R4, R5, A]));
   await reset();
 }
 
@@ -205,6 +223,7 @@ if (want('C')) {
   check('Unlock gives the volunteer their controls back', await until(async () => !!(await V.$('[data-act="stock+"]')) && !!(await V.$('[data-hold]')) && !(await V.$('#lockednote')), 9000));
   // a reset by a volunteer does not wipe the organiser's settings
   await tap(A, '[data-act=adm-pause]'); await cloudCtlIs(c => c.paused === true);
+  await until(async () => (await V.evaluate(() => CC.state().ctl && CC.state().ctl.paused)) === true, 9000);
   await V.evaluate(() => CC.reset()); await wait(2500);
   check('A reset of the tallies keeps the organiser settings (still paused)', ctlCloud().paused === true && (await V.evaluate(() => CC.state().ctl.paused)) === true);
   check('No JS errors', noErr([A, V]), errs([A, V]));
@@ -366,7 +385,84 @@ if (want('H')) {
   await reset();
 }
 
-await closeAll(); await browser.close(); web.close(); await mock.close();
+/* ---------- I. the live numbers are visible on every phone ---------- */
+if (want('I')) {
+  const A = await mkAdmin(), V = await mkVol('Volunteer 1'), V2 = await mkVol('Volunteer 2');
+  await fakeServe(V, 6); await fakeServe(V2, 4);
+  await V.evaluate(() => { const S = CC.state(); S.c.members = 3; CC.commit(); });
+  await until(async () => (await rem(V2)) === 70 && (await rem(A)) === 70, 9000);
+  const tiles = async (p, sel = '#livegrid') => (await p.innerText(sel)).replace(/\s+/g, ' ').trim();
+  const want6 = t => /^70 Food left 3\/3 Phones online - Serves\/hour 100% Win rate 10 New follows 3 New members$/.test(t);
+  let tv = ''; await until(async () => want6(tv = await tiles(V2)), 9000);
+  check('Volunteer Home shows food left, phones online, serves per hour, win rate, new follows and new members', want6(tv), tv);
+  check('...the admin phone shows exactly the same numbers', want6(await tiles(A)), await tiles(A));
+  await tap(V2, '[data-act=summary]'); await V2.waitForSelector('#livegrid2');
+  check('Summary shows the same live numbers with a line saying how serves per hour is worked out', want6(await tiles(V2, '#livegrid2')) && /Serves per hour appears after a few minutes/.test(await V2.innerText('#livebasis')), await V2.innerText('#livebasis'));
+  await tap(V2, '[data-act=back-home]'); await V2.waitForSelector('[data-act=next]');
+  await V2.evaluate(() => { const s = CC.samples(); s.length = 0; s.push([Date.now() - 10 * 60000, 0]); });
+  check('Serves per hour appears on a volunteer phone from its own readings (10 serves in 10 minutes is about 60 an hour)', await until(async () => { const m = (await tiles(V2)).match(/(\d+) Serves\/hour/); return m && +m[1] >= 50 && +m[1] <= 70; }, 6000), await tiles(V2));
+  await fakeServe(V, 1); await V.evaluate(() => { const S = CC.state(); S.c.members++; CC.commit(); });
+  check('The numbers update on other phones within seconds when someone serves (food 69, 11 new follows, 4 new members)', await until(async () => /^69 Food left 3\/3 Phones online/.test(await tiles(V2)) && /11 New follows 4 New members$/.test(await tiles(V2)), 9000), await tiles(V2));
+  await V2.setViewportSize({ width: 320, height: 568 }); await wait(250);
+  const geo = await V2.evaluate(() => { const g = document.querySelector('#livegrid').getBoundingClientRect(); return { hs: document.documentElement.scrollWidth > innerWidth + 1, l: g.left, r: g.right, vw: innerWidth }; });
+  check('Home with the live numbers fits a 320 px wide phone', !geo.hs && geo.l >= 0 && geo.r <= geo.vw, JSON.stringify(geo));
+  await V2.screenshot({ path: path.join(ROOT, 'tests', 'screenshots', 'live-numbers-volunteer-320.png') });
+  await V2.setViewportSize({ width: 375, height: 667 }); await wait(200); await V2.screenshot({ path: path.join(ROOT, 'tests', 'screenshots', 'live-numbers-volunteer.png') });
+  check('No JS errors', noErr([A, V, V2]), errs([A, V, V2]));
+  await reset();
+}
+
+/* ---------- J. the organiser phone is always first in the Phones list ---------- */
+if (want('J')) {
+  const A = await mkAdmin(), V = await mkVol('Volunteer 1');
+  const adminId = (await st0(A)).id;
+  check('The admin phone writes who it is to a record that a reset does not clear', await until(async () => { const a = mock.get(['events', TEAM, 'admin']); return a && a.id === adminId && a.l === ADMLABEL && typeof a.hb === 'number'; }, 9000), JSON.stringify(mock.get(['events', TEAM, 'admin'])));
+  const rows = async p => (await p.$$eval('#phones .kv', els => els.map(e => e.innerText.replace(/\s+/g, ' ').trim())));
+  await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
+  await until(async () => /Joseph's Phone \(Admin\)/.test((await rows(V))[0] || ''), 9000);
+  let r = await rows(V);
+  check('Volunteer Summary: "Joseph\'s Phone (Admin)" is the first row, online, then this phone', /^Joseph's Phone \(Admin\) online/.test(r[0]) && /^Volunteer 1 \(you\)/.test(r[1]), JSON.stringify(r));
+  await tap(A, '[data-act=summary]'); await A.waitForSelector('#phones');
+  await until(async () => (await rows(A)).length >= 2, 9000);
+  const rA = await rows(A);
+  check('The admin phone sees its own row first too, and every other phone after it', /^Joseph's Phone \(Admin\) \(you\)/.test(rA[0]) && /Volunteer 1/.test(rA[1]), JSON.stringify(rA));
+  await V.screenshot({ path: path.join(ROOT, 'tests', 'screenshots', 'phones-list-admin-first.png') });
+  // the admin phone goes away
+  const state = await A.ctx.storageState(); await A.ctx.close(); phones.splice(phones.indexOf(A), 1);
+  await V.evaluate(() => { const S = CC.state(), k = S.adminInfo.id; CC.net.adminSeen = { hb: S.adminInfo.hb, t: Date.now() - 80000 }; if (CC.net.seen[k]) CC.net.seen[k].t = Date.now() - 80000; });
+  await tap(V, '[data-act=back-home]'); await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
+  r = await rows(V);
+  check('With the admin phone offline it is still the first row and says offline with when it was last seen', /^Joseph's Phone \(Admin\) offline, last seen/.test(r[0]), JSON.stringify(r));
+  check('...and the phones-online tile counts it as offline (1/2)', /1\/2 Phones online/.test((await V.innerText('#livegrid2')).replace(/\s+/g, ' ')));
+  // a reset starts a new round with no record for the admin phone: it must still be listed
+  await V.evaluate(() => CC.reset()); await until(async () => (await V.evaluate(() => CC.state().epoch)) !== 'e0', 9000); await wait(2600);
+  await tap(V, '[data-act=back-home]').catch(() => {}); await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
+  r = await rows(V);
+  check('After a reset (new round, no record yet for the admin phone) it is still the first row, with 0 customers', /^Joseph's Phone \(Admin\) offline/.test(r[0]) && /0 customers/.test(r[0]), JSON.stringify(r));
+  // the volunteer phone loses its network and is reloaded: the list comes from what it remembered
+  mock.ctl.refuse = true; await V.reload(); await V.waitForSelector('#app *'); await wait(600);
+  await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
+  r = await rows(V);
+  check('A volunteer phone that reloads with no connection still lists the organiser phone first', /^Joseph's Phone \(Admin\) offline/.test(r[0]), JSON.stringify(r));
+  mock.ctl.refuse = false;
+  // a phone that joins late sees it too (the organiser phone was last seen five minutes ago)
+  mock.db().events[TEAM].admin.hb = Date.now() - 5 * 60000;
+  const V3 = await mkVol('Volunteer 3'); await tap(V3, '[data-act=summary]'); await V3.waitForSelector('#phones');
+  await until(async () => /^Joseph's Phone \(Admin\)/.test((await rows(V3))[0] || ''), 9000);
+  r = await rows(V3);
+  check('A phone that joins later also sees the organiser phone first (offline until it is seen)', /^Joseph's Phone \(Admin\) offline/.test(r[0]) && /Volunteer 3 \(you\)/.test(r[1]), JSON.stringify(r));
+  // the admin phone comes back
+  const A2 = await phone('', { join: false, init: initHash, initArg: TESTHASH, ctx: { storageState: state } }); await A2.goto('about:blank'); await A2.goto(BASE); await A2.waitForSelector('#app *');
+  check('When the admin phone comes back it shows as online again on volunteer phones', await until(async () => /^Joseph's Phone \(Admin\) online/.test((await rows(V3))[0] || ''), 14000), JSON.stringify(await rows(V3)));
+  // a spoofed record changes nothing about the name shown
+  mock.db().events[TEAM].admin = { id: 'abcdef123456', l: 'Totally the boss', hb: Date.now() };
+  await V3.evaluate(() => { CC.net.adminPollAt = 0; }); await wait(3500); r = await rows(V3);
+  check('The organiser row always shows the fixed organiser name, whatever the stored record says', /^Joseph's Phone \(Admin\)/.test(r[0]) && !r.some(x => /Totally the boss/.test(x)), JSON.stringify(r));
+  check('No JS errors', noErr([V, V3, A2]), errs([V, V3, A2]));
+  await reset();
+}
+
+await closeAll(); check('No unhandled promise rejections on any phone in any section', rejs.length === 0, rejs.slice(0, 3).join(' | ')); await browser.close(); web.close(); await mock.close();
 const failed = results.filter(r => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} admin checks passed (${process.env.BROWSER || 'chromium'})`);
 process.exit(failed.length ? 1 : 0);

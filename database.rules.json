@@ -147,6 +147,22 @@
             ".validate": false
           }
         },
+        "admin": {
+          ".write": "$team.length == 8",
+          ".validate": "newData.hasChildren(['id', 'l', 'hb'])",
+          "id": {
+            ".validate": "newData.isString() && newData.val().length >= 6 && newData.val().length <= 24"
+          },
+          "l": {
+            ".validate": "newData.isString() && newData.val().length <= 24"
+          },
+          "hb": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
         "$other": {
           ".validate": false
         }

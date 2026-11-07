@@ -255,6 +255,10 @@ ol.how b{font-weight:900}
 .alert.warn{border-color:var(--ink);background:var(--gold-soft);color:var(--ink)}
 textarea.txt{width:100%;min-height:92px;resize:vertical;font:600 18px/1.25 inherit;font-family:inherit}
 .count{font-size:14px;font-weight:700;color:var(--ink2);text-align:right}
+.livegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.livegrid .tally{padding:5px 2px}
+.livegrid .tally b{font-size:22px}
+.livegrid .tally span{font-size:12px;line-height:1.15;display:block}
 .lockcard{border:3px dashed var(--ink);border-radius:16px;padding:12px 14px;background:var(--gold-soft);font-weight:800;font-size:17px}
 .lockcard small{display:block;font-weight:600;font-size:15px;margin-top:2px}
 .kv small.muted{font-weight:600}
@@ -358,7 +362,8 @@ var LETTERS = ['A', 'B', 'C', 'D'];
 var APP_VERSION = '2.0';
 var KEY = 'ecomsoc-checkout-challenge-v1';        // same key as v1: old data is migrated
 var URLKEY = 'ecomsoc-sync-url';                  // optional override, used by tests
-var HASHKEY = 'ecomsoc-admin-hash', SAMPLEKEY = 'ecomsoc-admin-samples';   // test override for the admin hash; the admin phone's own pace samples
+var HASHKEY = 'ecomsoc-admin-hash', SAMPLEKEY = 'ecomsoc-pace-samples';   // test override for the admin hash; this phone's own pace readings
+var ADMLOCK = 'ecomsoc-admin-lock', ADMCOOKIE = 'ecomsoc_admin';          // extra copies of the admin mark, so one cleared store cannot drop admin
 var COUNTERS = ['customers', 'follows', 'already', 'correct', 'wrong', 'retries', 'skips', 'hot', 'full', 'won', 'lost', 'served', 'members', 'memberAlready'];
 var CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no I, O, 0, 1
 var PROFILE_URL = 'https://www.instagram.com/' + CONFIG.handle + '/';
@@ -433,7 +438,7 @@ function fresh() {
   return {
     v: 2, id: newId(), label: '', epoch: 'e0', startStock: CONFIG.defaultStock, adj: 0,
     c: zeroC(), first: null, last: null, rev: 0, acked: 0,
-    team: '', skipJoin: false, peers: {}, admin: false, ctl: null, seenMsg: '',
+    team: '', skipJoin: false, peers: {}, admin: false, adminFp: '', adminInfo: null, ctl: null, seenMsg: '',
     bags: { easy: [], hard: [] }, lastId: null, cur: null
   };
 }
@@ -459,8 +464,10 @@ function normalise(o) {
   f.rev = nn(o.rev, 0); f.acked = Math.min(nn(o.acked, 0), f.rev);
   f.team = parseTeam(o.team || '');
   f.skipJoin = !!o.skipJoin;
-  f.admin = o.admin === true;
+  f.admin = o.admin === true && (o.adminFp === undefined || o.adminFp === adminFp());   // a changed admin key (new adminHash) ends old admin phones
+  f.adminFp = f.admin ? adminFp() : '';
   if (f.admin) f.label = String(CONFIG.adminLabel).slice(0, 24);
+  f.adminInfo = f.team ? cleanAdminInfo(o.adminInfo) : null;
   f.ctl = f.team ? cleanCtl(o.ctl) : null;
   f.seenMsg = typeof o.seenMsg === 'string' ? o.seenMsg.slice(0, 12) : '';
   if (o.peers && typeof o.peers === 'object' && f.team) for (var pid in o.peers) { var pr = /^[a-z0-9]{6,24}$/i.test(pid) && pid !== f.id ? cleanRec(o.peers[pid]) : null; if (pr) f.peers[pid] = pr; }
@@ -480,8 +487,12 @@ function normalise(o) {
   return f;
 }
 function load() {
-  try { var raw = localStorage.getItem(KEY); if (raw) return normalise(JSON.parse(raw)); } catch (e) {}
-  return fresh();
+  var f = null;
+  try { var raw = localStorage.getItem(KEY); if (raw) f = normalise(JSON.parse(raw)); } catch (e) {}
+  if (!f) f = fresh();
+  /* the organiser phone stays the organiser phone: if the main copy is lost or damaged, the extra marks bring admin back */
+  if (!f.admin && adminMarkRead()) { f.admin = true; f.adminFp = adminFp(); f.label = String(CONFIG.adminLabel).slice(0, 24); }
+  return f;
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); storageOk = true; } catch (e) { storageOk = false; }
@@ -489,7 +500,7 @@ function save() {
 var S = load();
 (function probe() { try { localStorage.setItem(KEY + '-probe', '1'); localStorage.removeItem(KEY + '-probe'); } catch (e) { storageOk = false; } })();
 /* a change to anything that is shared with other phones */
-function commit() { S.rev++; save(); if (S.admin) recordSample(false); if (syncOn()) { net.nextPush = 0; setTimeout(tick, 0); } }
+function commit() { S.rev++; save(); recordSample(false); if (syncOn()) { net.nextPush = 0; setTimeout(tick, 0); } }
 
 /* ---------- shared totals ---------- */
 function allRecs() {
@@ -516,6 +527,27 @@ function phoneName(r) { return r.l || ('Phone ' + r.id.slice(-4).toUpperCase());
    - The admin writes ONE shared record, events/<team>/ctl: pause, lock, settings, message. Every phone reads it with its normal poll.
    - Volunteer phones keep every existing control. Only the new organiser features are admin-only in the app.
    ============================================================ */
+function adminFp() { return adminHashCfg().slice(0, 16); }
+function adminMarkRead() {
+  var fp = adminFp(), ok = false;
+  try { var v = localStorage.getItem(ADMLOCK); if (v && v.split(':')[0] === fp) ok = true; } catch (e) {}
+  try { var m = document.cookie.match(/(?:^|;\s*)ecomsoc_admin=([^;]+)/); if (m && decodeURIComponent(m[1]).split(':')[0] === fp) ok = true; } catch (e) {}
+  return ok;
+}
+function adminMarkWrite() {
+  var tok = adminFp() + ':' + newId();
+  try { localStorage.setItem(ADMLOCK, tok); } catch (e) {}
+  try { document.cookie = ADMCOOKIE + '=' + encodeURIComponent(tok) + '; max-age=34560000; path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : ''); } catch (e) {}
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}   // ask the browser not to clear this site's data
+}
+function adminMarkClear() {
+  try { localStorage.removeItem(ADMLOCK); } catch (e) {}
+  try { document.cookie = ADMCOOKIE + '=; max-age=0; path=/'; } catch (e) {}
+}
+function cleanAdminInfo(a) {
+  if (!a || typeof a !== 'object' || typeof a.id !== 'string' || !/^[a-z0-9]{6,24}$/i.test(a.id) || typeof a.hb !== 'number' || !isFinite(a.hb)) return null;
+  return { id: a.id, l: typeof a.l === 'string' ? a.l.slice(0, 24) : '', hb: a.hb };
+}
 function clampInt(v, lo, hi, d) { return (typeof v === 'number' && isFinite(v)) ? Math.max(lo, Math.min(hi, Math.round(v))) : d; }
 function defaultCtl() { return { rev: 0, paused: false, locked: false, mem: true, hot: CONFIG.hotDealPercent, retries: CONFIG.retries, msg: null }; }
 function validCtlShape(c) { return !!c && typeof c === 'object' && !Array.isArray(c) && typeof c.rev === 'number'; }
@@ -541,7 +573,6 @@ var samples = [];
 try { var rawS = JSON.parse(localStorage.getItem(SAMPLEKEY) || '[]'); if (Array.isArray(rawS)) samples = rawS.filter(function (x) { return Array.isArray(x) && typeof x[0] === 'number' && typeof x[1] === 'number'; }); } catch (e) { samples = []; }
 function saveSamples() { try { localStorage.setItem(SAMPLEKEY, JSON.stringify(samples)); } catch (e) {} }
 function recordSample(force) {
-  if (!S.admin) return;
   var t = Date.now(), served = totals().c.served, last = samples[samples.length - 1];
   if (!force && last && last[1] === served && t - last[0] < 60000) return;
   samples.push([t, served]);
@@ -634,10 +665,9 @@ async function flushCtl() {
   finally { net.ctlBusy = false; }
   liveUpdate(); wakeSync();
 }
-function setAdmin(on) {
-  S.admin = !!on;
-  if (on) S.label = String(CONFIG.adminLabel).slice(0, 24); else S.label = '';
-  clearSamples(); if (on) recordSample(true);
+function setAdmin(on) {                      // the app has no sign-out button: an admin phone stays admin (this is for tests and key changes)
+  S.admin = !!on; S.adminFp = on ? adminFp() : '';
+  if (on) { S.label = String(CONFIG.adminLabel).slice(0, 24); adminMarkWrite(); net.adminNext = 0; } else { S.label = ''; adminMarkClear(); }
   commit(); updateBcast();
 }
 async function applyAdminKey(key) {
@@ -655,14 +685,36 @@ async function applyAdminKey(key) {
   toast(r === 'unsupported' ? 'Admin sign-in needs a secure (https) page' : 'That admin key is not valid');
   return false;
 }
-function adminPhones() {
-  var now = Date.now(), rows = [];
-  rows.push({ id: S.id, me: true, name: S.label || 'This phone', c: S.c, last: S.last, state: syncOn() ? (syncState() === 'ok' ? 'online' : 'this phone: offline') : 'this phone', online: syncOn() ? syncState() === 'ok' : true, lost: false });
+/* every phone on the team, for every phone: the organiser first (even if it is offline or has no record in this round), then this phone, then the rest */
+function teamPhones() {
+  var now = Date.now(), rows = [], ai = syncOn() ? S.adminInfo : null, aid = ai ? ai.id : '';
+  var me = { id: S.id, me: true, admin: !!S.admin, name: S.label || 'This phone', c: S.c, last: S.last, hb: now,
+    state: syncOn() ? (syncState() === 'ok' ? 'online' : 'this phone, offline') : 'this phone', online: syncOn() ? syncState() === 'ok' : true, lost: false };
+  if (S.admin) rows.push(me);
+  if (ai && !S.admin) {
+    var pr = S.peers[aid], sn = net.seen[aid], as = net.adminSeen;
+    var on = !!((as && as.t && now - as.t < 45000) || (sn && now - sn.t < 45000));
+    rows.push({ id: aid, me: false, admin: true, name: String(CONFIG.adminLabel).slice(0, 24), c: pr ? pr.c : zeroC(), last: pr ? pr.last : null, hb: ai.hb,
+      state: on ? 'online' : 'offline, last seen ' + ago(ai.hb), online: on, lost: false });
+  }
+  if (!S.admin) rows.push(me);
   if (syncOn()) for (var k in S.peers) {
-    var r = S.peers[k], sn = net.seen[k], on = !!(sn && now - sn.t < 45000), lost = !on && !!(sn && sn.t > 0);
-    rows.push({ id: k, me: false, name: phoneName({ l: r.l, id: k }), c: r.c, last: r.last, hb: r.hb, state: on ? 'online' : (r.hb ? 'not seen for ' + ago(r.hb).replace(' ago', '') : 'not seen lately'), online: on, lost: lost });
+    if (k === aid && !S.admin) continue;
+    var r = S.peers[k], s2 = net.seen[k], on2 = !!(s2 && now - s2.t < 45000), lost = !on2 && !!(s2 && s2.t > 0);
+    rows.push({ id: k, me: false, admin: false, name: phoneName({ l: r.l, id: k }), c: r.c, last: r.last, hb: r.hb, state: on2 ? 'online' : 'not seen lately', online: on2, lost: lost });
   }
   return rows;
+}
+function adminPhones() { return teamPhones(); }
+function paceBasis() {
+  var pc = paceInfo();
+  return pc.kind === 'recent' ? 'Serves per hour from the last ' + pc.mins + ' minutes on this phone.' : pc.kind === 'overall' ? 'Serves per hour since the first customer.' : 'Serves per hour appears after a few minutes of serving.';
+}
+function liveGrid() {
+  var c = totals().c, pc = paceInfo(), rows = teamPhones(), on = rows.filter(function (r) { return r.online; }).length;
+  function t(n, l) { return '<div class="tally"><b>' + n + '</b><span>' + l + '</span></div>'; }
+  return t(Math.max(0, remaining()), 'Food left') + t(on + '/' + rows.length, 'Phones online') + t(pc.kind === 'none' ? '-' : pc.perHr, 'Serves/hour') +
+    t(pct(c.won, c.customers), 'Win rate') + t(c.follows, 'New follows') + t(CONFIG.membershipUrl ? c.members : '-', 'New members');
 }
 function adminAlerts() {
   var a = [], rem = remaining(), st = syncState();
@@ -672,7 +724,7 @@ function adminAlerts() {
   if (rem < 0) a.push({ t: 'Over-served by ' + (-rem) + '. Check the food count.', k: 'bad' });
   else if (rem === 0) a.push({ t: 'Thai food is sold out.', k: 'bad' });
   else if (rem <= CONFIG.lowStock) a.push({ t: 'Running low: ' + rem + ' serves left.', k: 'warn' });
-  adminPhones().forEach(function (p) { if (!p.me && p.lost) a.push({ t: p.name + ' went offline (' + p.state + ').', k: 'bad' }); });
+  adminPhones().forEach(function (p) { if (!p.me && p.lost) a.push({ t: p.name + ' went offline.', k: 'bad' }); });
   var c = S.ctl; if (c && c.paused) a.push({ t: 'The stall is paused for volunteers.', k: 'warn' });
   return a;
 }
@@ -713,7 +765,7 @@ function drawQuestion() {
    ============================================================ */
 var net = { pollOk: 0, pollFails: 0, pushFails: 0, pushing: false, polling: false, pushStart: 0, pollStart: 0,
   nextPoll: 0, nextPush: 0, lastPush: 0, pollErr: '', pollMsg: '', pushErr: '', pushMsg: '', seen: {}, pollPromise: null, metaPending: false, metaTimer: null, metaWant: null, metaBusy: false,
-  ctlWant: false, ctlBusy: false, ctlTimer: null, ctlFail: 0, ctlRev: 0 };
+  ctlWant: false, ctlBusy: false, ctlTimer: null, ctlFail: 0, ctlRev: 0, ctlPollAt: 0, adminSeen: null, adminPollAt: 0, adminNext: 0, adminPinging: false, adminFail: 0 };
 function syncOn() { return !!(SYNC_URL && S.team); }
 function base() { return SYNC_URL + '/events/' + S.team; }
 function unsent() { return Math.max(0, S.rev - S.acked); }
@@ -777,7 +829,7 @@ function pushNow() {
 }
 function adoptEpoch(ep, quiet) {
   var had = S.c.customers || S.c.served || S.adj;
-  S.epoch = ep; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0; S.peers = {}; net.seen = {}; save(); if (S.admin) clearSamples();
+  S.epoch = ep; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0; S.peers = {}; net.seen = {}; save(); clearSamples();
   if (had && !quiet) toast('Tallies were reset on another phone');
 }
 function pollNow(timeout) {
@@ -807,13 +859,24 @@ function pollNow(timeout) {
         else if (sn.hb !== r.hb || sn.rev !== r.rev) net.seen[k] = { hb: r.hb, rev: r.rev, t: now };
       }
       if (JSON.stringify(np) !== JSON.stringify(S.peers)) { S.peers = np; save(); }
-      try {                                                // the organiser's shared settings: a failure here never counts as a sharing problem
-        var cc = await http('GET', b + '/ctl.json', null, { timeout: to });
-        if (S.team !== team || S.epoch !== ep) return;
-        if (!net.ctlWant && !net.ctlBusy) { if (cc && typeof cc.rev === 'number') net.ctlRev = Math.max(net.ctlRev, cc.rev); adoptCtl(cc); }
+      try {                                                // the organiser's shared settings (every other check, about 4 s, to keep traffic gentle): a failure here never counts as a sharing problem
+        if (Date.now() - net.ctlPollAt >= 3500) {
+          net.ctlPollAt = Date.now();
+          var cc = await http('GET', b + '/ctl.json', null, { timeout: to });
+          if (S.team !== team || S.epoch !== ep) return;
+          if (!net.ctlWant && !net.ctlBusy) { if (cc && typeof cc.rev === 'number') net.ctlRev = Math.max(net.ctlRev, cc.rev); adoptCtl(cc); }
+        }
       } catch (e) {}
       var mine = devs && devs[S.id], cloudRev = mine && typeof mine.rev === 'number' ? mine.rev : 0;
       if (S.acked > 0 && cloudRev < S.acked) S.acked = cloudRev;          // our last write did not land: send it again
+      try {                                                // who the organiser phone is, and when it was last seen (every few seconds is enough)
+        if (Date.now() - (net.adminPollAt || 0) >= 30000) {               // a phone with a live record is seen every check; this record covers the time when it has none
+          net.adminPollAt = Date.now();
+          var ad = await http('GET', b + '/admin.json', null, { timeout: to });
+          if (S.team !== team) return;
+          adoptAdminInfo(ad);
+        }
+      } catch (e) {}
       net.pollOk = Date.now(); net.pollFails = 0; net.pollErr = ''; net.pollMsg = ''; net.nextPoll = Date.now() + CONFIG.pollMs;
       recordSample(false);
       if (net.pushFails > 0) net.nextPush = 0;            // the network demonstrably works again: retry unsent changes now, not after the back-off
@@ -822,9 +885,25 @@ function pollNow(timeout) {
   })();
   return net.pollPromise;
 }
+function adoptAdminInfo(a) {
+  var info = cleanAdminInfo(a);
+  if (!info) return;                                    // no record, or odd data: keep what this phone already knows (the organiser phone never disappears from the list)
+  if (!net.adminSeen || net.adminSeen.hb !== info.hb) net.adminSeen = { hb: info.hb, t: (!net.adminSeen && Date.now() - info.hb > 60000) ? 0 : Date.now() };
+  if (JSON.stringify(info) !== JSON.stringify(S.adminInfo)) { S.adminInfo = info; save(); }
+}
+/* the organiser phone says "I am here" every 15 seconds, in a record that is not cleared by a reset */
+function adminPing() {
+  if (!S.admin || !syncOn() || net.adminPinging || Date.now() < net.adminNext) return;
+  net.adminPinging = true; var team = S.team;
+  http('PUT', base() + '/admin.json?print=silent', JSON.stringify({ id: S.id, l: String(CONFIG.adminLabel).slice(0, 24), hb: Date.now() }))
+    .then(function () { net.adminNext = Date.now() + CONFIG.heartbeatMs; net.adminFail = 0; if (S.team === team) { S.adminInfo = { id: S.id, l: String(CONFIG.adminLabel).slice(0, 24), hb: Date.now() }; } })
+    .catch(function () { net.adminFail = (net.adminFail || 0) + 1; net.adminNext = Date.now() + backoff(net.adminFail); })
+    .then(function () { net.adminPinging = false; });
+}
 function tick() {
   if (!syncOn() || document.visibilityState === 'hidden') return;
   var now = Date.now();
+  adminPing();
   if (net.pushing && now - net.pushStart > 15000) net.pushing = false;
   if (!net.pushing && now >= net.nextPush && (unsent() > 0 || now - net.lastPush >= CONFIG.heartbeatMs)) pushNow();
   if (!net.polling && now >= net.nextPoll) pollNow();
@@ -881,9 +960,9 @@ function localReset() {
 }
 function joinTeam(code) {
   S.id = newId(); S.team = code; S.epoch = 'e0'; S.peers = {}; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0;
-  S.startStock = CONFIG.defaultStock; S.skipJoin = true; S.ctl = null; S.seenMsg = ''; net.ctlWant = false; net.ctlRev = 0; updateBcast(); net.seen = {}; net.pollOk = 0; net.pollFails = 0; net.pollErr = ''; net.pushErr = ''; net.metaPending = false; net.metaWant = null; save(); wakeSync();
+  S.startStock = CONFIG.defaultStock; S.skipJoin = true; S.ctl = null; S.seenMsg = ''; S.adminInfo = null; net.adminSeen = null; net.adminPollAt = 0; net.ctlPollAt = 0; net.adminNext = 0; net.ctlWant = false; net.ctlRev = 0; updateBcast(); net.seen = {}; net.pollOk = 0; net.pollFails = 0; net.pollErr = ''; net.pushErr = ''; net.metaPending = false; net.metaWant = null; save(); wakeSync();
 }
-function leaveTeam() { S.team = ''; S.peers = {}; S.ctl = null; S.seenMsg = ''; net.ctlWant = false; updateBcast(); S.skipJoin = true; net.seen = {}; net.pollErr = ''; net.pushErr = ''; save(); }
+function leaveTeam() { S.team = ''; S.peers = {}; S.ctl = null; S.seenMsg = ''; S.adminInfo = null; net.adminSeen = null; net.ctlPollAt = 0; net.adminPollAt = 0; net.ctlWant = false; updateBcast(); S.skipJoin = true; net.seen = {}; net.pollErr = ''; net.pushErr = ''; save(); }
 function hasTallies() { return !!(S.c.customers || S.c.served || S.adj || S.c.skips); }
 
 /* ---------- wake lock ---------- */
@@ -1072,6 +1151,7 @@ function screenHome() {
     (S.admin ? adminHomeRow() : '') + pauseBanner() +
     homeStock() +
     '<div class="tallies" id="tallies">' + homeTallies() + '</div>' +
+    '<div class="livegrid" id="livegrid" aria-label="Team live numbers">' + liveGrid() + '</div>' +
     '<div class="spacer"></div>' +
   '</main>' +
   '<footer class="foot">' +
@@ -1220,11 +1300,9 @@ function statGrid() {
     s(c.retries, 'Retries given') + s(c.skips, 'Skips') + s(c.served, 'Food served');
 }
 function phonesHtml() {
-  var rows = allRecs().map(function (r) {
-    var st = r.me ? (syncState() === 'ok' ? 'online' : syncOn() ? 'this phone, offline' : 'this phone') : (net.seen[r.id] && Date.now() - net.seen[r.id].t < 45000 ? 'online' : 'not seen lately');
-    return '<div class="kv"><span>' + esc(phoneName(r)) + (r.me ? ' (you)' : '') + '<br><small class="muted">' + esc(st) + '</small></span><span class="r">' + r.c.customers + ' customers<br>' + r.c.served + ' served</span></div>';
-  });
-  return rows.join('');
+  return teamPhones().map(function (r) {
+    return '<div class="kv"><span>' + esc(r.name) + (r.me ? ' (you)' : '') + '<br><small class="muted">' + esc(r.state) + '</small></span><span class="r">' + r.c.customers + ' customers<br>' + r.c.served + ' served</span></div>';
+  }).join('');
 }
 function summaryText() {
   var t = totals(), c = t.c, recs = allRecs(), s = remaining(), ts = t.first || t.last || Date.now();
@@ -1259,6 +1337,7 @@ function screenSummary() {
   return bar('<button class="barbtn" data-act="back-home">' + ico('back') + 'Home</button>', 'Summary') +
   '<main class="main">' +
     '<button class="syncrow ' + sp.cls + '" id="syncrow" data-act="sync-open">' + sp.html + '</button>' +
+    '<h2 class="sec">Live team numbers</h2><div class="livegrid" id="livegrid2">' + liveGrid() + '</div><p class="sub" id="livebasis" style="font-size:14px">' + esc(paceBasis()) + '</p>' +
     '<div class="stats" id="stats">' + statGrid() + '</div>' +
     '<div class="card" id="times"><div class="kv"><span>First customer</span><span id="tfirst">' + (totals().first ? fmtTime(totals().first) : 'none yet') + '</span></div>' +
     '<div class="kv"><span>Last customer</span><span id="tlast">' + (totals().last ? fmtTime(totals().last) : 'none yet') + '</span></div></div>' +
@@ -1276,7 +1355,7 @@ function screenSummary() {
     (isLocked() ? '' : '<h2 class="sec">Reset' + (sh ? ' all phones' : '') + '</h2>' +
     '<p class="sub">' + (sh ? 'Clears the tallies on every phone and puts food back to the total at start. Do this only when all phones are online.' : 'Clears all tallies and puts food back to the total at start.') + '</p>' +
     '<button class="btn hold" data-hold="reset" aria-label="Press and hold for 2 seconds to reset"><span class="fill"></span><span>' + ico('trash') + 'Hold 2 seconds to reset</span></button>') +
-    (S.admin ? '<button class="btn sm" data-act="admin-open">Organiser console</button><button class="txtbtn" data-act="admin-out">Sign out of admin</button>' : '<button class="txtbtn" data-act="admin-signin">Organiser sign-in</button>') +
+    (S.admin ? '<button class="btn sm" data-act="admin-open">Organiser console</button>' : '<button class="txtbtn" data-act="admin-signin">Organiser sign-in</button>') +
     '<p class="sub center" style="font-size:14px">App version ' + APP_VERSION + '</p>' +
     '<div style="height:8px"></div>' +
   '</main>';
@@ -1397,11 +1476,13 @@ function liveUpdate() {
     if (view === 'home') {
       var sc = $('#stockcard'); if (sc) sc.outerHTML = homeStock();
       var tl = $('#tallies'); if (tl) tl.innerHTML = homeTallies();
+      setInner('#livegrid', liveGrid());
       if (S.admin) setInner('#adminrow', adminHomeInner());
     } else if (view === 'admin' && S.admin) {
       setInner('#adm-live', adminLive()); setInner('#adm-ctl', adminControls()); setInner('#admmsg', adminMsgNow());
     } else if (view === 'summary') {
       var st = $('#stats'); if (st) st.innerHTML = statGrid();
+      setInner('#livegrid2', liveGrid()); setInner('#livebasis', esc(paceBasis()));
       var ph = $('#phones'); if (ph) ph.innerHTML = phonesHtml();
       var t = totals(), a = $('#tfirst'), b = $('#tlast');
       if (a) a.textContent = t.first ? fmtTime(t.first) : 'none yet'; if (b) b.textContent = t.last ? fmtTime(t.last) : 'none yet';
@@ -1537,8 +1618,6 @@ document.addEventListener('click', function (e) {
     case 'admin-open': if (S.admin) go('admin'); break;
     case 'admin-signin': showModal('<h3>Organiser sign-in</h3><p class="sub">Paste the private admin key, or the whole admin link.</p><input class="txt" id="adminkey" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Admin key" placeholder="Admin key"><button class="btn pri" data-act="admin-signin-go">Sign in</button><button class="btn" data-act="modal-close">Cancel</button>'); break;
     case 'admin-signin-go': { var ak = parseAdminKey(($('#adminkey') || {}).value || '', true); if (!ak) { toast('That does not look like an admin key'); break; } closeModal(); applyAdminKey(ak); break; }
-    case 'admin-out': showModal('<h3>Sign out of admin?</h3><p class="sub">This phone goes back to a normal volunteer phone. You can sign in again with the private link.</p><button class="btn" data-act="admin-out-yes">Sign out</button><button class="btn pri" data-act="modal-close">Stay admin</button>'); break;
-    case 'admin-out-yes': closeModal(); setAdmin(false); toast('Signed out of admin'); view = 'home'; render(); break;
     case 'adm-pause': adminSet({ paused: !adminCtl().paused }); break;
     case 'adm-lock': adminSet({ locked: !adminCtl().locked }); break;
     case 'adm-mem': if (CONFIG.membershipUrl) adminSet({ mem: !adminCtl().mem }); break;
@@ -1649,12 +1728,13 @@ window.addEventListener('storage', function (e) {
 });
 
 /* test and debugging hooks */
-window.CC = { cleanCtl: cleanCtl, paceInfo: paceInfo, etaText: etaText, adminSet: adminSet, adminAlerts: adminAlerts, adminReport: adminReport, recordSample: recordSample, samples: function () { return samples; }, flushCtl: flushCtl, parseAdminKey: parseAdminKey, buildHandoff: buildHandoff, iabTapOpen: iabTapOpen, detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
+window.CC = { setAdmin: setAdmin, teamPhones: teamPhones, liveGrid: liveGrid, adminFp: adminFp, cleanCtl: cleanCtl, paceInfo: paceInfo, etaText: etaText, adminSet: adminSet, adminAlerts: adminAlerts, adminReport: adminReport, recordSample: recordSample, samples: function () { return samples; }, flushCtl: flushCtl, parseAdminKey: parseAdminKey, buildHandoff: buildHandoff, iabTapOpen: iabTapOpen, detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
   commit: commit, remaining: remaining, totals: totals, syncState: syncState, net: net, tick: tick, pollNow: pollNow, syncOn: syncOn, unsent: unsent };
 
 /* join link: https://.../#t=ABCD-EFGH (the code never goes to the web host, it stays after the #).
    Handled at load AND whenever the address changes while the app is already open (for example a scanned QR). */
 var started = false;
+if (S.admin) { S.adminFp = adminFp(); save(); adminMarkWrite(); }      // refreshes the long-lived copies and asks the browser to keep this site's data
 function applyJoinCode(code) {
   if (!(code && SYNC_URL && code !== S.team)) return;
   if (hasTallies()) { setTimeout(function () { doJoin(code); }, 300); return; }

@@ -43,6 +43,11 @@ function validCtl(v, old) {            // mirrors the "ctl" rules: the organiser
   }
   return true;
 }
+function validAdmin(v) {               // mirrors the "admin" rules: who the organiser phone is and when it was last seen
+  if (!v || typeof v !== 'object') return false;
+  if (!Object.keys(v).every(k => ['id', 'l', 'hb'].includes(k))) return false;
+  return typeof v.id === 'string' && v.id.length >= 6 && v.id.length <= 24 && isStr(v.l, 24) && isNum(v.hb);
+}
 function resolveSV(v) {
   if (v && typeof v === 'object') {
     if (v['.sv'] === 'timestamp') return Date.now();
@@ -95,8 +100,12 @@ export function startMock() {
           let val; try { val = prune(resolveSV(JSON.parse(body))); } catch (e) { return send(400, { error: 'Invalid data' }); }
           const isMeta = segs.length === 3 && segs[2] === 'meta';
           const isDev = segs.length === 6 && segs[2] === 'epochs' && segs[4] === 'devices';
+          const isAdm = segs.length === 3 && segs[2] === 'admin';
           const isCtl = segs.length === 3 && segs[2] === 'ctl';
-          if (isCtl) {
+          if (isAdm) {
+            if (!validAdmin(val)) return send(401, { error: 'Permission denied' });
+            this_apply(segs, val);
+          } else if (isCtl) {
             if (!validCtl(val, getAt(segs))) return send(401, { error: 'Permission denied' });
             this_apply(segs, val);
           } else if (isMeta) {
