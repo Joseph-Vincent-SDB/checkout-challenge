@@ -56,6 +56,25 @@ Command-line alternative to steps 1 to 3 (needs Node.js): `npx firebase-tools lo
 5. Name each phone in **Summary > This phone's name**, so the Phones list and Copy summary say who served what.
 6. A phone that joins a team starts from zero. If it had practice tallies, it asks before clearing them.
 
+## The organiser (admin) phone
+
+One phone is the organiser's. It has everything a volunteer phone has, plus an **Organiser console**. Volunteer phones keep all their existing controls (food total, food remaining, reset, naming the phone).
+
+**Becoming the admin.** Open the private admin link once on that phone: `https://<your site>/#t=TEAMCODE&a=ADMINKEY`. The phone joins the team, is named `Joseph's Phone (Admin)` (the name is fixed, see `adminLabel` in `index.html`) and shows an ADMIN badge. The key leaves the address bar immediately. If the app is installed on the Home Screen (separate storage on iPhone), use **Summary > Organiser sign-in** and paste the key or the whole link instead. **Sign out of admin** is at the bottom of Summary.
+
+**The key.** `CONFIG.adminHash` holds only the SHA-256 of the key, so the key is not in the code or the database. To make a new key: generate 24 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, put the SHA-256 (hex) of that text in `adminHash`, and share only the link with the key. Keep the key and the admin QR private (they are in git-ignored files).
+
+**What the console does** (all of it only on the admin phone):
+- **Alerts:** low food, sold out, a phone that went offline, over-served, this phone offline, changes waiting to send.
+- **Live numbers:** food left, phones online, serves per hour (from this phone's own readings, or since the first customer), win rate, serves, follows, members, a sell-out time estimate, and every phone with its own numbers and online state.
+- **Message to every phone:** type or pick a quick message (140 characters), Normal or Important. It shows as a banner on every volunteer phone until they tap Got it, even mid-customer. Clear it any time.
+- **Pause the stall:** volunteers cannot start new customers (customers already in progress can finish). The admin phone is not blocked.
+- **Lock volunteer settings:** hides food totals, food remaining and reset on volunteer phones until unlocked.
+- **Event settings for every phone:** membership step on or off, HOT DEAL chance (0 to 100 in steps of 10) and extra questions after a wrong answer (0 to 2).
+- **Copy admin report:** the normal summary plus pace, win rate, current settings and every phone.
+
+**How it works and what it does not do.** The admin phone writes one shared record, `events/<team>/ctl`; every phone reads it on its normal 2 second check and keeps a copy so it still applies while offline. Changes that cannot send (no signal) are kept and retried. Admin-only is enforced inside the app: the key is needed to unlock the controls and a volunteer phone never writes the record. The database itself has no logins, so someone who knows the team code and edits the app's own code could still write to it; keep the team code to volunteers. Phones that have not updated to this version yet (or are offline) do not see messages, pauses or locks until they do.
+
 ## Where the app is hosted
 
 The live address is **https://ecomsoc-checkout.web.app** (Firebase Hosting, same free Firebase project as the shared food count). It is HTTPS, which the wake lock and offline support need, and the address contains no personal name.

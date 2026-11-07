@@ -107,6 +107,46 @@
             }
           }
         },
+        "ctl": {
+          ".write": "$team.length == 8",
+          ".validate": "newData.hasChildren(['rev', 'paused', 'locked', 'mem', 'hot', 'retries'])",
+          "rev": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000000000 && (!data.exists() || newData.val() >= data.val())"
+          },
+          "paused": {
+            ".validate": "newData.isBoolean()"
+          },
+          "locked": {
+            ".validate": "newData.isBoolean()"
+          },
+          "mem": {
+            ".validate": "newData.isBoolean()"
+          },
+          "hot": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+          },
+          "retries": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2"
+          },
+          "msg": {
+            ".validate": "newData.hasChildren(['id', 't', 'k'])",
+            "id": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12"
+            },
+            "t": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 140"
+            },
+            "k": {
+              ".validate": "newData.isString() && (newData.val() == 'info' || newData.val() == 'warn')"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
         "$other": {
           ".validate": false
         }

@@ -56,6 +56,26 @@ Test engines: Chromium (Chrome and Android) and WebKit (the engine inside every 
 | Phone names with Chinese, emoji, quotes, HTML | Accepted, shared, shown as plain text. | `scenarios.mjs` (9) |
 | Someone without the team code | Cannot read or write the team's data. Malformed or out-of-range data is refused by the rules. | `rules-check.mjs` (live) |
 
+## C2. The organiser phone
+
+| Situation | What happens | Tested |
+|---|---|---|
+| Wrong, short or missing admin key | The phone joins the team as a normal volunteer phone, nothing is unlocked, the app says the key is not valid | yes |
+| Admin name edited in stored data | Restored from the app on every load; the name box is locked | yes |
+| Admin link opened inside Instagram | The open-in-Safari guide shows, nothing is joined or unlocked there; Copy link keeps the key; Continue anyway applies it | yes |
+| Admin change while offline or the database is failing | Kept and retried with back-off; the console says it is waiting to send; lands by itself when the network is back | yes |
+| Stored settings are older than this phone's copy ("older revision" refused) | The phone reads the stored copy, continues from its revision and writes again | yes |
+| Several quick changes (toggle, toggle, toggle) | One write at a time; the last value of each setting wins | yes |
+| Text or wrong types in the settings record, or the record deleted | Wrong shapes are ignored, wrong values are cleaned to safe limits, deleting it returns everyone to the normal defaults | yes |
+| Message with HTML in it | Shown as plain text; 140 character limit in the app and the database rules | yes |
+| Volunteer phone offline when a message is sent | Shows it as soon as it reconnects | yes |
+| Pause while a customer is in progress | That customer can finish; new customers are blocked until resumed; the admin phone is never blocked | yes |
+| A volunteer reset of the tallies | The organiser's settings are kept | yes |
+| Membership step switched off with a customer on that step | The customer moves on to Reveal deal | yes |
+| Smallest phone (320 x 568) | Console and banner fit, buttons 48 px or more, console scrolls | yes |
+
+Limits: admin-only is enforced inside the app, not by the database (there are no logins); phones that are offline or running an older copy of the app do not see messages, pauses or locks until they reconnect or update; "serves per hour" comes from the admin phone's own readings, so it needs the admin phone to be open for a few minutes.
+
 ## D. Long runs
 
 Soaks against the real database, all passing: 5 phones for 4 minutes (144 customers, all 80 portions served exactly once), 8 phones for 200 seconds (206 customers), and a **6 phone, 20 minute run mixing Chromium and WebKit phones** (876 customers, 709 serves, 71 offline spells, 41 refreshes, 38 app-switches). After each, every phone and the database agree on every counter, with no JavaScript errors, gentle network use (about 1.3 requests per second per phone), no memory growth (JS heap 1.00x after 20 minutes) and small saved data (under 2 KB per phone).

@@ -71,6 +71,28 @@ await denied('Cannot write a record with a too-short phone id', 'PUT', `${T}/epo
 await denied('Cannot use a too-long epoch id', 'PUT', `${T}/epochs/${'e'.repeat(25)}/devices/abcdef123456`, dev());
 await denied('Cannot write under a made-up short team code', 'PUT', 'events/ABC/meta', { epoch: 'e0', startStock: 80 });
 
+// organiser settings (ctl)
+const C = `${T}/ctl`;
+const ctlOk = (o = {}) => ({ rev: 1, paused: false, locked: false, mem: true, hot: 70, retries: 1, ...o });
+await allowed('Valid organiser settings are accepted', 'PUT', C, ctlOk());
+await allowed('Settings with a message are accepted', 'PUT', C, ctlOk({ rev: 2, msg: { id: 'a1b2c3d4', t: 'Only 10 serves left', k: 'info' } }));
+{ const r = await call('GET', C); check('Settings read back for anyone with the team code', r.json && r.json.msg && r.json.msg.t === 'Only 10 serves left' && r.json.paused === false, JSON.stringify(r.json)); }
+await allowed('Same revision again is accepted', 'PUT', C, ctlOk({ rev: 2 }));
+await denied('An older revision of the settings is refused (stale write)', 'PUT', C, ctlOk({ rev: 1 }));
+await denied('Settings missing a required field are refused', 'PUT', C, { rev: 3, paused: false, locked: false, mem: true, hot: 70 });
+await denied('"paused" as text is refused', 'PUT', C, ctlOk({ rev: 3, paused: 'yes' }));
+await denied('HOT DEAL chance above 100 is refused', 'PUT', C, ctlOk({ rev: 3, hot: 101 }));
+await denied('Negative HOT DEAL chance is refused', 'PUT', C, ctlOk({ rev: 3, hot: -1 }));
+await denied('More than 2 retries is refused', 'PUT', C, ctlOk({ rev: 3, retries: 3 }));
+await denied('A message longer than 140 characters is refused', 'PUT', C, ctlOk({ rev: 3, msg: { id: 'a1b2c3d4', t: 'x'.repeat(141), k: 'info' } }));
+await denied('An empty message is refused', 'PUT', C, ctlOk({ rev: 3, msg: { id: 'a1b2c3d4', t: '', k: 'info' } }));
+await denied('A message with an unknown style is refused', 'PUT', C, ctlOk({ rev: 3, msg: { id: 'a1b2c3d4', t: 'hi', k: 'loud' } }));
+await denied('A message with an extra field is refused', 'PUT', C, ctlOk({ rev: 3, msg: { id: 'a1b2c3d4', t: 'hi', k: 'info', evil: 1 } }));
+await denied('An extra field on the settings is refused', 'PUT', C, ctlOk({ rev: 3, evil: 'x' }));
+await denied('Settings under a made-up short team code are refused', 'PUT', 'events/ABC/ctl', ctlOk());
+await allowed('Clearing the message (settings without msg) is accepted', 'PUT', C, ctlOk({ rev: 4 }));
+{ const r = await call('GET', C); check('The cleared message is gone', r.json && r.json.msg === undefined && r.json.rev === 4, JSON.stringify(r.json)); }
+
 // CORS (browser calls from the GitHub Pages site)
 {
   const r = await fetch(`${DB}/${T}/meta.json`, { method: 'OPTIONS', headers: { origin: 'https://joseph-vincent-sdb.github.io', 'access-control-request-method': 'PUT', 'access-control-request-headers': 'content-type' } });
@@ -78,7 +100,7 @@ await denied('Cannot write under a made-up short team code', 'PUT', 'events/ABC/
   check('Browsers on the GitHub Pages site are allowed to call it (CORS)', r.status < 300 && (allow === '*' || allow === 'https://joseph-vincent-sdb.github.io'), `HTTP ${r.status} allow-origin=${allow}`);
 }
 // clean up
-await call('DELETE', D); await call('DELETE', `${T}/meta`);
+await call('DELETE', D); await call('DELETE', `${T}/meta`); await call('DELETE', C);
 { const r = await call('GET', T); check('Test data removed', r.status === 200 && (r.json === null), JSON.stringify(r.json)); }
 
 if (mock) await mock.close();

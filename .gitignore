@@ -12,3 +12,6 @@ tests/last-soak-run.json
 VOLUNTEER-MESSAGE.md
 .deploy/
 .firebase/
+ADMIN-KEY.private
+ADMIN-LINK.md
+admin-link-qr.png

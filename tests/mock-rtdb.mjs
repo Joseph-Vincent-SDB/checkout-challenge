@@ -27,6 +27,22 @@ function validDevice(v, old) {
   if (v.app !== undefined && !isNum(v.app)) return false;
   return true;
 }
+function validCtl(v, old) {            // mirrors the "ctl" rules: the organiser's shared settings and message
+  if (!v || typeof v !== 'object') return false;
+  if (!Object.keys(v).every(k => ['rev', 'paused', 'locked', 'mem', 'hot', 'retries', 'msg'].includes(k))) return false;
+  if (!isNum(v.rev, 0, 1000000000)) return false;
+  if (old && old.rev !== undefined && v.rev < old.rev) return false;                   // a late, stale write is refused
+  if (typeof v.paused !== 'boolean' || typeof v.locked !== 'boolean' || typeof v.mem !== 'boolean') return false;
+  if (!isNum(v.hot, 0, 100) || !isNum(v.retries, 0, 2)) return false;
+  if (v.msg !== undefined) {
+    const m = v.msg;
+    if (!m || typeof m !== 'object' || !Object.keys(m).every(k => ['id', 't', 'k'].includes(k))) return false;
+    if (typeof m.id !== 'string' || m.id.length < 1 || m.id.length > 12) return false;
+    if (typeof m.t !== 'string' || m.t.length < 1 || m.t.length > 140) return false;
+    if (m.k !== 'info' && m.k !== 'warn') return false;
+  }
+  return true;
+}
 function resolveSV(v) {
   if (v && typeof v === 'object') {
     if (v['.sv'] === 'timestamp') return Date.now();
@@ -79,7 +95,11 @@ export function startMock() {
           let val; try { val = prune(resolveSV(JSON.parse(body))); } catch (e) { return send(400, { error: 'Invalid data' }); }
           const isMeta = segs.length === 3 && segs[2] === 'meta';
           const isDev = segs.length === 6 && segs[2] === 'epochs' && segs[4] === 'devices';
-          if (isMeta) {
+          const isCtl = segs.length === 3 && segs[2] === 'ctl';
+          if (isCtl) {
+            if (!validCtl(val, getAt(segs))) return send(401, { error: 'Permission denied' });
+            this_apply(segs, val);
+          } else if (isMeta) {
             const merged = req.method === 'PATCH' ? { ...(getAt(segs) || {}), ...val } : val;
             if (!validMeta(merged)) return send(401, { error: 'Permission denied' });
             if (!silent) { /* normal */ }
