@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run.mjs && node sync.mjs && node scenarios.mjs && node rules-check.mjs && node sw-update.mjs",
+    "test": "node run.mjs && node sync.mjs && node scenarios.mjs && node rules-check.mjs && node rules-file.mjs && node sw-update.mjs && node admin.mjs && node traffic.mjs",
     "test:solo": "node run.mjs",
     "test:sync": "node sync.mjs",
     "test:rules": "node rules-check.mjs",
@@ -11,7 +11,10 @@
     "test:update": "node sw-update.mjs",
     "test:soak": "node soak.mjs",
     "test:scenarios": "node scenarios.mjs",
-    "test:safari": "BROWSER=webkit node run.mjs && BROWSER=webkit node sync.mjs && BROWSER=webkit node scenarios.mjs && BROWSER=webkit node sw-update.mjs"
+    "test:safari": "BROWSER=webkit node run.mjs && BROWSER=webkit node sync.mjs && BROWSER=webkit node scenarios.mjs && BROWSER=webkit node sw-update.mjs && BROWSER=webkit node admin.mjs && BROWSER=webkit node traffic.mjs",
+    "test:admin": "node admin.mjs",
+    "test:traffic": "node traffic.mjs",
+    "test:rules-file": "node rules-file.mjs"
   },
   "devDependencies": {
     "jsqr": "^1.4.0",

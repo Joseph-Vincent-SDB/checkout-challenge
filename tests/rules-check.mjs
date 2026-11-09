@@ -93,6 +93,38 @@ await denied('Settings under a made-up short team code are refused', 'PUT', 'eve
 await allowed('Clearing the message (settings without msg) is accepted', 'PUT', C, ctlOk({ rev: 4 }));
 { const r = await call('GET', C); check('The cleared message is gone', r.json && r.json.msg === undefined && r.json.rev === 4, JSON.stringify(r.json)); }
 
+// newer organiser controls (stall modes, reserve, question switches, update speed, hold/hide, messages to one phone, refresh, change list)
+const pidn = i => 'abcdef' + String(100000 + i);
+const dmN = (n, t = 'hi', k = 'info') => Object.fromEntries(Array.from({ length: n }, (_, i) => [pidn(i), { id: 'm' + i, t, k }]));
+await allowed('Settings with every newer field are accepted', 'PUT', C, ctlOk({ rev: 10, poll: 8, keep: 10, qoff: 'E03,H02', hold: pidn(1), gone: pidn(2), rl: 'abc123XYZ0', log: '1700000000000|Joseph|Rush hour mode on', dm: dmN(2, 'Come and see me', 'warn') }));
+{ const r = await call('GET', C); check('...they read back for anyone with the team code', r.json && r.json.poll === 8 && r.json.keep === 10 && r.json.qoff === 'E03,H02' && r.json.dm && r.json.dm[pidn(0)].t === 'Come and see me', JSON.stringify(r.json).slice(0, 120)); }
+await denied('Update speed above 30 seconds is refused', 'PUT', C, ctlOk({ rev: 11, poll: 31 }));
+await denied('A negative update speed is refused', 'PUT', C, ctlOk({ rev: 11, poll: -1 }));
+await denied('A reserve above 200 is refused', 'PUT', C, ctlOk({ rev: 11, keep: 201 }));
+await denied('A list of switched-off questions longer than 300 characters is refused', 'PUT', C, ctlOk({ rev: 11, qoff: 'x'.repeat(301) }));
+await denied('A list of held phones longer than 400 characters is refused', 'PUT', C, ctlOk({ rev: 11, hold: 'x'.repeat(401) }));
+await denied('A list of hidden phones longer than 400 characters is refused', 'PUT', C, ctlOk({ rev: 11, gone: 'x'.repeat(401) }));
+await denied('A refresh token of 13 characters is refused', 'PUT', C, ctlOk({ rev: 11, rl: 'abcdefghijklm' }));
+await denied('An empty refresh token is refused', 'PUT', C, ctlOk({ rev: 11, rl: '' }));
+await denied('A change list longer than 800 characters is refused', 'PUT', C, ctlOk({ rev: 11, log: 'x'.repeat(801) }));
+await denied('A message for one phone longer than 140 characters is refused', 'PUT', C, ctlOk({ rev: 11, dm: dmN(1, 'x'.repeat(141)) }));
+await denied('A message for one phone with an unknown style is refused', 'PUT', C, ctlOk({ rev: 11, dm: dmN(1, 'hi', 'loud') }));
+await denied('A message for a made-up short phone id is refused', 'PUT', C, ctlOk({ rev: 11, dm: { abc: { id: 'm1', t: 'hi', k: 'info' } } }));
+await denied('A message for one phone with an extra field is refused', 'PUT', C, ctlOk({ rev: 11, dm: { [pidn(1)]: { id: 'm1', t: 'hi', k: 'info', evil: 1 } } }));
+await denied('Text where the per-phone messages should be is refused', 'PUT', C, ctlOk({ rev: 11, dm: 'hello' }));
+await allowed('The biggest settings record the app can send (14 held, 14 hidden, 12 messages, 8 change lines) is accepted', 'PUT', C, ctlOk({ rev: 12, poll: 30, keep: 200, qoff: 'E01,E02,E03,E04,E05,E06,E07,E08,E09,E10,H01,H02,H03,H04,H05,H06,H07,H08,H09', hold: Array.from({ length: 14 }, (_, i) => pidn(i)).join(','), gone: Array.from({ length: 14 }, (_, i) => pidn(20 + i)).join(','), rl: 'abcdefghij', log: Array.from({ length: 8 }, (_, i) => (1700000000000 + i) + '|Joseph|' + 'y'.repeat(60)).join('\n'), dm: dmN(12, 'z'.repeat(140), 'warn'), msg: { id: 'm1', t: 'x'.repeat(140), k: 'warn' } }));
+await allowed('Back to the plain settings (all newer fields cleared) is accepted', 'PUT', C, ctlOk({ rev: 13 }));
+{ const r = await call('GET', C); check('...and the newer fields are gone', r.json && r.json.poll === undefined && r.json.dm === undefined && r.json.rev === 13, JSON.stringify(r.json)); }
+await allowed('A phone record with the newer report fields (settings applied, messages seen, battery) is accepted', 'PUT', D, dev({ rev: 20, app: 3, cr: 41, ack: 'a1b2c3d4', dk: 'e5f6a7b8', bat: 87, chg: true }));
+await denied('A negative settings revision in a phone record is refused', 'PUT', D, dev({ rev: 21, cr: -1 }));
+await denied('A settings revision above 1000000000 in a phone record is refused', 'PUT', D, dev({ rev: 21, cr: 1000000001 }));
+await denied('A message id of 13 characters in a phone record is refused', 'PUT', D, dev({ rev: 21, ack: 'abcdefghijklm' }));
+await denied('A battery level above 100 is refused', 'PUT', D, dev({ rev: 21, bat: 101 }));
+await denied('A battery level below 0 is refused', 'PUT', D, dev({ rev: 21, bat: -1 }));
+await denied('Text for the charging flag is refused', 'PUT', D, dev({ rev: 21, chg: 'yes' }));
+await denied('An unknown field next to the newer ones is still refused', 'PUT', D, dev({ rev: 21, cr: 41, evil: 'x' }));
+await allowed('The record from the older app version is still accepted after all this', 'PUT', D, dev({ rev: 22, app: 2 }));
+
 // organiser phone record (admin)
 const AD = `${T}/admin`;
 await allowed('Valid organiser-phone record is accepted', 'PUT', AD, { id: 'abcdef123456', l: "Joseph's Phone (Admin)", hb: Date.now() });

@@ -100,6 +100,21 @@
                 "app": {
                   ".validate": "newData.isNumber()"
                 },
+                "cr": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000000000"
+                },
+                "ack": {
+                  ".validate": "newData.isString() && newData.val().length <= 12"
+                },
+                "dk": {
+                  ".validate": "newData.isString() && newData.val().length <= 12"
+                },
+                "bat": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+                },
+                "chg": {
+                  ".validate": "newData.isBoolean()"
+                },
                 "$other": {
                   ".validate": false
                 }
@@ -141,6 +156,45 @@
             },
             "$other": {
               ".validate": false
+            }
+          },
+          "poll": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 30"
+          },
+          "keep": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 200"
+          },
+          "qoff": {
+            ".validate": "newData.isString() && newData.val().length <= 300"
+          },
+          "hold": {
+            ".validate": "newData.isString() && newData.val().length <= 400"
+          },
+          "gone": {
+            ".validate": "newData.isString() && newData.val().length <= 400"
+          },
+          "rl": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12"
+          },
+          "log": {
+            ".validate": "newData.isString() && newData.val().length <= 800"
+          },
+          "dm": {
+            ".validate": "newData.hasChildren()",
+            "$pid": {
+              ".validate": "$pid.length >= 6 && $pid.length <= 24 && newData.hasChildren(['id', 't', 'k'])",
+              "id": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12"
+              },
+              "t": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 140"
+              },
+              "k": {
+                ".validate": "newData.isString() && (newData.val() == 'info' || newData.val() == 'warn')"
+              },
+              "$other": {
+                ".validate": false
+              }
             }
           },
           "$other": {

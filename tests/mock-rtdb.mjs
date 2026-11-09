@@ -13,9 +13,10 @@ function validMeta(m) {
   return ok && typeof m.epoch === 'string' && m.epoch.length >= 1 && m.epoch.length <= 24 && isNum(m.startStock, 0, 5000) &&
     (m.resetAt === undefined || isNum(m.resetAt)) && (m.by === undefined || isStr(m.by, 24));
 }
+let LEGACY = false;                     // mock.ctl.legacyRules = true behaves like the database rules from before the newest organiser controls
 function validDevice(v, old) {
   if (!v || typeof v !== 'object') return false;
-  if (!Object.keys(v).every(k => ['l', 'c', 'adj', 'first', 'last', 'hb', 'rev', 'app'].includes(k))) return false;
+  if (!Object.keys(v).every(k => ['l', 'c', 'adj', 'first', 'last', 'hb', 'rev', 'app'].concat(LEGACY ? [] : ['cr', 'ack', 'dk', 'bat', 'chg']).includes(k))) return false;
   if (!v.c || typeof v.c !== 'object' || v.c.customers === undefined || v.c.served === undefined) return false;
   if (!Object.keys(v.c).every(k => COUNTERS.includes(k) && isNum(v.c[k], 0, 100000))) return false;
   if (!isNum(v.rev, 0) || !isNum(v.hb)) return false;
@@ -25,11 +26,16 @@ function validDevice(v, old) {
   if (v.first !== undefined && !isNum(v.first)) return false;
   if (v.last !== undefined && !isNum(v.last)) return false;
   if (v.app !== undefined && !isNum(v.app)) return false;
+  if (v.cr !== undefined && !isNum(v.cr, 0, 1000000000)) return false;
+  if (v.ack !== undefined && !isStr(v.ack, 12)) return false;
+  if (v.dk !== undefined && !isStr(v.dk, 12)) return false;
+  if (v.bat !== undefined && !isNum(v.bat, 0, 100)) return false;
+  if (v.chg !== undefined && typeof v.chg !== 'boolean') return false;
   return true;
 }
 function validCtl(v, old) {            // mirrors the "ctl" rules: the organiser's shared settings and message
   if (!v || typeof v !== 'object') return false;
-  if (!Object.keys(v).every(k => ['rev', 'paused', 'locked', 'mem', 'hot', 'retries', 'msg'].includes(k))) return false;
+  if (!Object.keys(v).every(k => ['rev', 'paused', 'locked', 'mem', 'hot', 'retries', 'msg'].concat(LEGACY ? [] : ['poll', 'keep', 'qoff', 'hold', 'gone', 'dm', 'rl', 'log']).includes(k))) return false;
   if (!isNum(v.rev, 0, 1000000000)) return false;
   if (old && old.rev !== undefined && v.rev < old.rev) return false;                   // a late, stale write is refused
   if (typeof v.paused !== 'boolean' || typeof v.locked !== 'boolean' || typeof v.mem !== 'boolean') return false;
@@ -40,6 +46,23 @@ function validCtl(v, old) {            // mirrors the "ctl" rules: the organiser
     if (typeof m.id !== 'string' || m.id.length < 1 || m.id.length > 12) return false;
     if (typeof m.t !== 'string' || m.t.length < 1 || m.t.length > 140) return false;
     if (m.k !== 'info' && m.k !== 'warn') return false;
+  }
+  if (v.poll !== undefined && !isNum(v.poll, 0, 30)) return false;
+  if (v.keep !== undefined && !isNum(v.keep, 0, 200)) return false;
+  if (v.qoff !== undefined && !isStr(v.qoff, 300)) return false;
+  if (v.hold !== undefined && !isStr(v.hold, 400)) return false;
+  if (v.gone !== undefined && !isStr(v.gone, 400)) return false;
+  if (v.rl !== undefined && !(isStr(v.rl, 12) && v.rl.length >= 1)) return false;
+  if (v.log !== undefined && !isStr(v.log, 800)) return false;
+  if (v.dm !== undefined) {
+    const d = v.dm;
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return false;
+    for (const k of Object.keys(d)) {
+      const m = d[k];
+      if (k.length < 6 || k.length > 24) return false;
+      if (!m || typeof m !== 'object' || !Object.keys(m).every(x => ['id', 't', 'k'].includes(x))) return false;
+      if (!(isStr(m.id, 12) && m.id.length >= 1) || !(isStr(m.t, 140) && m.t.length >= 1) || (m.k !== 'info' && m.k !== 'warn')) return false;
+    }
   }
   return true;
 }
@@ -62,7 +85,7 @@ function prune(o) {                      // RTDB drops nulls and empty objects
 
 export function startMock() {
   let db = {};
-  const ctl = { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null, filter: null };
+  const ctl = { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null, filter: null, legacyRules: false };
   const stats = { total: 0, byMethod: {}, log: [] };
   const getAt = segs => { let n = db; for (const s of segs) { if (n && typeof n === 'object' && s in n) n = n[s]; else return null; } return n === undefined ? null : n; };
   const setAt = (segs, val) => {
@@ -86,6 +109,7 @@ export function startMock() {
         if (ctl.hang) return;                                                    // never answers: the client must time out
         if (ctl.filter && !ctl.filter(req.method, u.pathname)) { /* filter says: behave normally */ }
         if (ctl.failRate && Math.random() < ctl.failRate) { res.writeHead(ctl.failStatus, { ...cors, 'content-type': 'application/json' }); return res.end('{"error":"injected"}'); }
+        LEGACY = !!ctl.legacyRules;
         const send = (code, obj) => { res.writeHead(code, { ...cors, 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
         const path = decodeURIComponent(u.pathname).replace(/^\/+/, '').replace(/\.json$/, '');
         const segs = path ? path.split('/') : [];
@@ -135,7 +159,7 @@ export function startMock() {
       url: `http://127.0.0.1:${server.address().port}`,
       ctl, stats,
       db: () => db,
-      reset() { db = {}; Object.assign(ctl, { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null }); stats.total = 0; stats.byMethod = {}; stats.log = []; },
+      reset() { db = {}; Object.assign(ctl, { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null, legacyRules: false }); stats.total = 0; stats.byMethod = {}; stats.log = []; },
       get: segs => getAt(segs),
       close: () => new Promise(r => { server.closeAllConnections?.(); server.close(r); })
     });

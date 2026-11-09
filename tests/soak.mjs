@@ -118,6 +118,23 @@ async function worker(p) {
     await sleep(rnd(300, 2000));
   }
 }
+/* the newer organiser controls, used at random while volunteers keep serving */
+async function newAction(p) {
+  const r = Math.random(), pickOf = a => a[Math.floor(Math.random() * a.length)]; p.stats.newActs = (p.stats.newActs || 0) + 1;
+  if (r < 0.14) await tapq(p, '[data-act=adm-mode][data-m=' + pickOf(['rush', 'normal', 'quiet', 'clear']) + ']');
+  else if (r < 0.26) await tapq(p, '[data-act=adm-poll][data-s="' + pickOf([0, 2, 4, 8]) + '"]');
+  else if (r < 0.38) await tapq(p, '[data-act=adm-keep-set][data-n="' + pickOf([0, 0, 5, 10]) + '"]');
+  else if (r < 0.52) {
+    if ((await p.getAttribute('[data-act=adm-q-open]', 'aria-expanded')) !== 'true') await tapq(p, '[data-act=adm-q-open]');
+    const ids = await p.$$eval('[data-act=adm-q]', els => els.map(e => e.dataset.id));
+    if (ids.length) await tapq(p, `[data-act=adm-q][data-id=${pickOf(ids)}]`);
+  }
+  else if (r < 0.63) await p.evaluate(() => { const ids = Object.keys(CC.state().peers); if (!ids.length) return; const id = ids[Math.floor(Math.random() * ids.length)], c = CC.state().ctl || { hold: [] }; const h = (c.hold || []).slice(), i = h.indexOf(id); if (i >= 0) h.splice(i, 1); else if (h.length < 2) h.push(id); CC.adminSet({ hold: h }, 'Soak: hold or resume a phone'); });
+  else if (r < 0.73) await p.evaluate(() => { const ids = Object.keys(CC.state().peers); if (!ids.length) return; const id = ids[Math.floor(Math.random() * ids.length)], c = CC.state().ctl || { dm: {} }; const dm = Object.assign({}, c.dm || {}); dm[id] = { id: Math.random().toString(36).slice(2, 10), t: 'Soak message ' + id.slice(-3), k: 'info' }; CC.adminSet({ dm }, 'Soak: message to one phone'); });
+  else if (r < 0.81) await p.evaluate(() => { const ids = Object.keys(CC.state().peers); if (!ids.length) return; const id = ids[Math.floor(Math.random() * ids.length)], c = CC.state().ctl || { gone: [] }; const g = (c.gone || []).slice(), i = g.indexOf(id); if (i >= 0) g.splice(i, 1); else if (g.length < 2) g.push(id); CC.adminSet({ gone: g }, 'Soak: hide or show a phone'); });
+  else if (r < 0.93) { if (await p.$('[data-act=adm-undo]:not([disabled])')) await tapq(p, '[data-act=adm-undo]'); }
+  else if ((p.stats.refreshes || 0) < 2) { await tapq(p, '[data-act=adm-refresh]'); await tapq(p, '[data-act=adm-refresh-yes]'); p.stats.refreshes = (p.stats.refreshes || 0) + 1; }
+}
 async function adminWorker(p) {
   await sleep(rnd(2000, 5000));
   const onConsole = async () => { if (!(await p.$('#adm-live'))) { if (await p.$('[data-act=back-home]')) await tapq(p, '[data-act=back-home]').catch(() => {}); if (await p.$('[data-act=admin-open]')) await tapq(p, '[data-act=admin-open]'); await p.waitForSelector('#adm-live', { timeout: 4000 }); } };
@@ -130,7 +147,8 @@ async function adminWorker(p) {
         await customer(p);
       } else {
         await onConsole(); const a = Math.random();
-        if (a < 0.22) { await p.fill('#bmsg', msgs[Math.floor(Math.random() * msgs.length)]); if (Math.random() < 0.4) await tapq(p, '[data-act=adm-kind][data-k=warn]'); await tapq(p, '[data-act=adm-send]'); p.stats.msgs = (p.stats.msgs || 0) + 1; }
+        if (Math.random() < 0.35) await newAction(p);
+        else if (a < 0.22) { await p.fill('#bmsg', msgs[Math.floor(Math.random() * msgs.length)]); if (Math.random() < 0.4) await tapq(p, '[data-act=adm-kind][data-k=warn]'); await tapq(p, '[data-act=adm-send]'); p.stats.msgs = (p.stats.msgs || 0) + 1; }
         else if (a < 0.30) { await tapq(p, '[data-act=adm-clear]').catch(() => {}); }
         else if (a < 0.46) { await tapq(p, '[data-act=adm-pause]'); p.stats.pauses = (p.stats.pauses || 0) + 1; await sleep(rnd(4000, 9000)); await onConsole(); const on = await p.getAttribute('[data-act=adm-pause]', 'aria-pressed'); if (on === 'true') await tapq(p, '[data-act=adm-pause]'); }
         else if (a < 0.58) { await tapq(p, '[data-act=adm-lock]'); p.stats.locks = (p.stats.locks || 0) + 1; await sleep(rnd(3000, 7000)); await onConsole(); const on = await p.getAttribute('[data-act=adm-lock]', 'aria-pressed'); if (on === 'true') await tapq(p, '[data-act=adm-lock]'); }
@@ -153,7 +171,7 @@ clearInterval(ticker);
 
 const heap1 = await Promise.all(phones.map(heap)), store1 = await Promise.all(phones.map(storeSize));
 /* ---------- settle: everyone online and visible, then compare ---------- */
-if (ADMIN_KEY) { const adm = phones.find(p => p.admin); await adm.evaluate(() => CC.adminSet({ paused: false, locked: false, mem: true, hot: 70, retries: 1, msg: null })); await sleep(1500); }
+if (ADMIN_KEY) { const adm = phones.find(p => p.admin); await adm.evaluate(() => CC.adminSet({ paused: false, locked: false, mem: true, hot: 70, retries: 1, msg: null, keep: 0, poll: 0, hold: [], gone: [], qoff: [], dm: {} })); await sleep(1500); }
 for (const p of phones) { await p.ctx.setOffline(false); await p.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }); document.dispatchEvent(new Event('visibilitychange')); }); }
 const settled = async () => { for (let k = 0; k < 60; k++) { const st = await Promise.all(phones.map(p => p.evaluate(() => [CC.syncState(), CC.unsent()]))); if (st.every(([s, u]) => s === 'ok' && u === 0)) return true; await sleep(500); } return false; };
 check('After the soak every phone is connected with nothing left unsent', await settled());
@@ -177,7 +195,7 @@ if (ADMIN_KEY) {
   const adm = phones.find(p => p.admin), vols = phones.filter(p => !p.admin);
   await sleep(6000);
   const dbCtl = await rest('GET', `events/${TEAM}/ctl`);
-  check('Organiser settings in the database are back to normal (not paused, not locked, membership on)', dbCtl && dbCtl.paused === false && dbCtl.locked === false && dbCtl.mem === true && !dbCtl.msg, JSON.stringify(dbCtl));
+  check('Organiser settings in the database are back to normal (not paused, not locked, membership on)', dbCtl && dbCtl.paused === false && dbCtl.locked === false && dbCtl.mem === true && !dbCtl.msg && !dbCtl.keep && !dbCtl.hold && !dbCtl.gone && !dbCtl.qoff && !dbCtl.dm && !dbCtl.poll, JSON.stringify(dbCtl));
   const cs = await Promise.all(phones.map(p => p.evaluate(() => { const c = CC.state().ctl; return c ? { rev: c.rev, paused: c.paused, locked: c.locked, mem: c.mem, hot: c.hot, retries: c.retries, msg: !!c.msg } : null; })));
   check('Every phone holds exactly the settings that are in the database', cs.every(c => c && dbCtl && c.rev === dbCtl.rev && c.paused === dbCtl.paused && c.locked === dbCtl.locked && c.mem === dbCtl.mem && c.hot === dbCtl.hot && c.retries === dbCtl.retries && c.msg === false), JSON.stringify(cs));
   const first = await Promise.all(vols.map(p => p.evaluate(() => { const r = CC.teamPhones()[0]; return { admin: !!r.admin, name: r.name, state: r.state }; })));
@@ -196,7 +214,9 @@ check('Memory does not grow without limit (JS heap at the end is under 4x the st
 check('Saved data on each phone stays small (under 20 KB)', store1.every(s => s < 20000), store1.join(', ') + ' chars');
 const secs = (Date.now() - t0) / 1000;
 const rates = phones.map(p => p.dbReqs / secs);
-check('Network use is gentle: under 1.6 requests per second per phone on average', rates.every(r => r < 1.6), rates.map(r => r.toFixed(2)).join(', '));
+// 1.6 without an organiser phone. With one, the soak's organiser changes something every few seconds and every phone reports back once per change (so the organiser sees it arrived), which adds a little.
+const RATE_MAX = ADMIN_KEY ? 1.8 : 1.6;
+check(`Network use is gentle: under ${RATE_MAX} requests per second per phone on average`, rates.every(r => r < RATE_MAX), rates.map(r => r.toFixed(2)).join(', '));
 console.log('\nPer phone: ' + phones.map(p => `#${p.i + 1} (${p.engine}) customers=${snap[p.i].c.customers} served=${snap[p.i].c.served} retries=${snap[p.i].c.retries} skips=${snap[p.i].c.skips} offlineBlips=${p.stats.offline} hidden=${p.stats.hidden} reloads=${p.stats.reloads} cancelled=${p.stats.cancelled} transientHiccups=${p.transient}`).join('\n          '));
 console.log(`Totals: customers=${sum.customers} served=${sum.served} correct=${sum.correct} wrong=${sum.wrong} skips=${sum.skips} food left=${expectedRem}`);
 

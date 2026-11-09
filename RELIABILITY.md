@@ -81,14 +81,58 @@ Test engines: Chromium (Chrome and Android) and WebKit (the engine inside every 
 
 Limits: admin-only is enforced inside the app, not by the database (there are no logins); phones that are offline or running an older copy of the app do not see messages, pauses or locks until they reconnect or update; "serves per hour" comes from the admin phone's own readings, so it needs the admin phone to be open for a few minutes.
 
+## C3. The newer organiser controls (modes, reserve, question pool, speed, phone controls, delivery, undo)
+
+| Situation | What happens | Tested by |
+|---|---|---|
+| One tap on a stall mode (Rush hour, Quiet time, Clear the stock, Normal) | Membership step, easy-question share and retries change in ONE write (one revision), so every phone switches together. A customer already in progress is not disturbed. Changing any single setting afterwards shows "Custom settings". | `admin.mjs` L |
+| A question switched off while a customer is looking at it | That customer keeps it; it is never drawn again on any phone. At least one HOT DEAL and one FULL PRICE question always stay on (the app refuses to switch off the last one, and ignores a database record that would switch off all of a kind). Tampered or junk lists are cleaned. | `admin.mjs` M |
+| Hold a phone (for a break) | Only that phone gets "This phone is on hold" and a disabled Next customer button. A customer in progress there can finish and be served. Resume enables it again, in place, without redrawing the screen. At most 14 phones can be held. | `admin.mjs` N |
+| A message to one phone | Only that phone shows it (important or normal), before any message for everyone; Got it shows the shared one next. The organiser sees whether it was read. It does not come back after a reload. At most 12 are stored. | `admin.mjs` N |
+| Hide a phone (left, or a practice phone) | It leaves the lists, the "phones online" figures, the Shared bar and the alerts on every phone. Its numbers still count in the totals and the CSV. It can be shown again. A hidden phone that goes offline raises no alert. | `admin.mjs` N |
+| Update speed (Auto, 2, 4, 8, 15 s) | Every phone checks the team numbers at that speed, with a small random spread (when more than 12 phones are online) so phones never all ask in the same instant. Auto is 2 s up to 12 phones online, then 3, 5, 8 and 12 s as the team grows (checked with 32 phones). The organiser's settings are still checked every few seconds on their own timer, so a slow speed never delays the order to speed up again. An idle heartbeat no longer triggers an extra check, which cuts the load with many phones. | `admin.mjs` O, `traffic.mjs` |
+| Network load | The console shows what this phone downloads a minute, and an estimate per hour for the team against the free plan. | `admin.mjs` O |
+| Did it arrive? | Phones report the settings version applied, the message read and the app level. The console says "Version N is on X of Y phones" and names the phones still waiting; after 25 seconds without it the alerts name them. Phones on an older copy are listed separately. | `admin.mjs` P, `traffic.mjs` |
+| Low battery | Where the browser reports it (Chrome on Android): an alert for a phone at 20% or less that is not charging. iPhones do not report battery, so nothing is shown for them. | `admin.mjs` P |
+| Refresh all phones | Idle phones reload within a few seconds; a phone in the middle of a customer waits and reloads when it is idle again; the organiser phone does not reload; a reloaded phone does not reload again; a phone that joins later does not reload for an old request. | `admin.mjs` P |
+| The app is published against older database rules | The newer fields are refused, the phones notice, fall back to the basic record and keep sharing (no "Sharing problem"); the basic organiser settings still land; the console shows a red alert to publish the rules; the newer controls start working again a few minutes after the rules are published. (Publish the rules first: `./scripts/deploy-hosting.sh` does.) | `admin.mjs` P |
+| Keep the last N portions back | When the food left reaches N, volunteer phones stop starting customers (banner and button say why); a customer already at the Serve screen can still be served; the admin phone is never stopped; lowering or switching it off opens the stall again in place. | `admin.mjs` Q |
+| Undo and the change list | Undo reverses the last change (a quick run of taps is one step), also after a reload; the list shows the last 8 changes from every organiser phone with the time and who. | `admin.mjs` R |
+| Two organiser phones change different settings at once | Each write first reads the stored record and puts only its own changes on top, so neither wipes the other's. If both change the same setting the later one wins. | `admin.mjs` R |
+| An organiser change cannot be sent (database unreachable) and the page is closed and opened again | The change is remembered and sent by itself once the database is reachable. | `admin.mjs` R |
+| Settings from the first organiser version, wrong types in any newer field, out-of-range numbers, junk lists, damaged messages or change list | Read with safe defaults; values limited (speed 30 s, reserve 200, 140 characters); bad entries dropped. The largest possible record (14 held, 14 hidden, 12 messages, 8 change lines, a message) is under 8 KB and accepted by the rules. | `admin.mjs` S, `rules-file.mjs` |
+| The settings record is deleted | Every newer control returns to normal on every phone. | `admin.mjs` S |
+| Smallest phone (320 x 568) | The long console (question list open), the phone dialog, the hold banner and a 140-character message all fit; every button is 48 px or more; the dialog scrolls inside the screen. | `admin.mjs` T |
+| Many phones online at once | See `traffic.mjs`: 24 volunteer phones and 2 organiser phones, real customers, offline spells and refreshes, while the organiser changes something every few seconds. Every change reaches every phone; the totals agree exactly at the end. | `traffic.mjs` |
+| Rules file | `database.rules.json` itself is evaluated for 62 cases (every newer field at and beyond its limits), and the stand-in database used by the tests is compared case by case. A hole this found (a plain text value accepted where per-phone messages go) was fixed. | `rules-file.mjs` |
+
+## D0. High-traffic runs (many phones online at once)
+
+`node traffic.mjs`: 24 volunteer phones and 2 organiser phones for 90 seconds against a stand-in database with 25 to 115 ms of delay on every request. Volunteers run real customers (one or two a minute per phone is normal; the test pushes about three), go offline for a few seconds and refresh, while the organiser phones change a mode, pause, lock, update speed, reserve, a question, a hold, a hide, a message or Undo every few seconds. Results (the latest runs, Chromium, and Chromium mixed with WebKit):
+
+| What | Result |
+|---|---|
+| Changes made | 12 and 13 (each waited for every phone before the next) |
+| Arrival on a phone that was online and not reloading | median 1.7 to 2.0 s, 95th percentile 3.9 to 4.2 s, worst 5.2 to 5.4 s |
+| Until EVERY phone held a change (including phones that were offline for a few seconds) | median 3.5 s, worst 6.4 to 10 s |
+| Tap-to-screen on the organiser phone | under 25 ms |
+| Customers run / served | 187 to 340 / 173 to 267 |
+| Final state | every phone and the database agree on every counter; every phone on the organiser's last settings; the "Did it arrive?" panel all green; nobody over-served |
+| Database requests | about 1.5 to 1.9 per second per phone while every phone is busy (Auto slows the team numbers down as phones join) |
+| Errors | none: no JavaScript errors, no unhandled promise rejections on any of the 26 phones |
+
+What made the arrival time short: phones check the organiser's settings on their own 3 second timer (independent of the chosen update speed), write only their own record, and a burst of taps on a big team shares one follow-up check.
+
 ## D. Long runs
 
 Soaks against the real database, all passing: 5 phones for 4 minutes (144 customers, all 80 portions served exactly once), 8 phones for 200 seconds (206 customers), and a **6 phone, 20 minute run mixing Chromium and WebKit phones** (876 customers, 709 serves, 71 offline spells, 41 refreshes, 38 app-switches). After each, every phone and the database agree on every counter, with no JavaScript errors, gentle network use (about 1.3 requests per second per phone), no memory growth (JS heap 1.00x after 20 minutes) and small saved data (under 2 KB per phone).
 
+**Newer organiser controls, live on the real database** (a preview build of this version against the real Firebase database, throwaway team codes, everything removed afterwards): the live end-to-end test 88 of 88 on Chromium and 88 of 88 on WebKit (it now also drives modes, question pool, hold, a message to one phone, reserve, update speed, delivery tracking, undo, refresh all phones and the change list); a 300 second soak with 8 phones (4 Chromium, 4 WebKit) plus an organiser phone that also used every newer control at random: 205 customers, 86 served, every phone and the database agree exactly on every counter and on the organiser's settings, no JavaScript errors, no memory growth, 16 of 16 checks; and the rules probe 96 of 96 against the real database.
+
 ## E. Known limits (not bugs, but be aware)
 
 1. **Live to within about 2 seconds, not instant.**
-2. **Last-cup race.** Two phones tapping Serve for the last cup within about a second of each other can both serve it. The count then reads one over, and the Summary says so. Keep a physical eye on the food at the very end.
+2. **Last-cup race.** Two phones tapping Serve for the last cup within about a second of each other can both serve it. The count then reads one over, and the Summary says so. Keep a physical eye on the food at the very end. **The organiser's reserve removes the race for volunteers:** set "Keep the last portions back" to at least the number of volunteer phones (for example 6 phones: keep 6). Volunteer phones then stop starting customers while food is still left, at most one customer per phone is still in progress, and the organiser phone alone hands out the kept-back food. (In the 24-phone traffic test the stock is large on purpose; running the stock to zero with 24 phones tapping at once over-served by 1, as this limit says.)
 3. **An offline phone cannot see other phones' serves.** If several phones are offline near the end, food can be over-served. The red bar tells you.
 4. **Reset needs a connection** and affects every phone. It cannot be undone from the app (the old numbers stay in the database).
 5. **iPhone Home Screen app has separate storage** from Safari. Type the team code once in the installed app.
