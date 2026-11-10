@@ -527,6 +527,20 @@ if (want('K')) {
   const A2 = await mkAdmin();
   check('The normal a= link still makes the named organiser phone (not quiet)', (await st0(A2)).admin === true && (await st0(A2)).quiet === false && (await st0(A2)).label === ADMLABEL);
   check('A wrong key with c= grants nothing', await (async () => { const W = await phone('', { join: false, ...hashOpts }); await W.goto('about:blank'); await W.goto(BASE + '#t=' + TEAM + '&c=' + OTHERKEY); await W.waitForSelector('#app *'); await wait(900); return (await st0(W)).admin === false && !(await W.$('[data-act=admin-open]')); })());
+  // the quiet link opened on a phone that is already signed in as an organiser phone turns it into a quiet admin
+  const a2Id = (await st0(A2)).id;
+  await A2.goto('about:blank'); await A2.goto(BASE + '#t=' + TEAM + '&c=' + TESTKEY); await A2.waitForSelector('#app *');
+  check('The quiet link opened on a phone that was signed in as an organiser phone turns it into a quiet admin named "Skyson\'s Phone" (it keeps every admin power)', await until(async () => { const x = await st0(A2); return x.quiet === true && x.admin === true && x.label === QLABEL; }, 8000) && await A2.isVisible('[data-act=admin-open]'));
+  check('...the long-lived admin marks are rewritten as quiet (so wiped data comes back as quiet, not as the organiser)', await A2.evaluate(() => /:q$/.test(localStorage.getItem('ecomsoc-admin-lock') || '') && /ecomsoc_admin=[^;]*%3Aq/.test(document.cookie)));
+  check('...its new name reaches the database', await until(async () => (cloudDevices()[a2Id] || {}).l === QLABEL, 12000), JSON.stringify((cloudDevices()[a2Id] || {}).l));
+  check('...it no longer writes the organiser record: it names the real organiser phone again (not the converted one)', await until(async () => { const r = mock.get(['events', TEAM, 'admin']); return r && r.id === adminId && r.l === ADMLABEL; }, 30000), JSON.stringify(mock.get(['events', TEAM, 'admin'])));
+  check('...other phones list only ONE organiser phone and show the converted phone as a normal "Skyson\'s Phone"', await until(async () => { const rows = await V.evaluate(() => CC.teamPhones().map(r => ({ n: r.name, a: r.admin }))); return rows.filter(r => r.a).length === 1 && rows.some(r => r.n === QLABEL && !r.a); }, 20000));
+  await A2.reload(); await A2.waitForSelector('#app *'); await wait(700);
+  check('...it stays a quiet admin after a reload', (await st0(A2)).quiet === true && (await st0(A2)).label === QLABEL);
+  await Q.goto('about:blank'); await Q.goto(BASE + '#t=' + TEAM + '&a=' + TESTKEY); await Q.waitForSelector('#app *'); await wait(900);
+  check('A quiet admin opening the normal organiser link is NOT promoted: it stays quiet with the quiet name', (await st0(Q)).quiet === true && (await st0(Q)).label === QLABEL);
+  await A.goto('about:blank'); await A.goto(BASE + '#t=' + TEAM + '&c=' + OTHERKEY); await A.waitForSelector('#app *'); await wait(900);
+  check('The quiet link with a wrong key changes nothing on an organiser phone (it stays the named organiser phone)', (await st0(A)).quiet === false && (await st0(A)).admin === true && (await st0(A)).label === ADMLABEL);
   check('No JS errors', noErr([A, V, Q, A2]), errs([A, V, Q, A2]));
   await reset();
 }

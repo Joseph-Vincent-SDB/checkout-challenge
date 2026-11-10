@@ -365,7 +365,7 @@ var QUESTIONS = [
 /* ============================ END OF EDITABLE DATA ============================ */
 
 var LETTERS = ['A', 'B', 'C', 'D'];
-var APP_VERSION = '2.2';
+var APP_VERSION = '2.3';
 var APP_LEVEL = 4;       // written into each phone's record, so the organiser console can list every phone that is not on this newest copy
 var UNDOKEY = 'ecomsoc-admin-undo';               // the organiser phone's own list of changes it can undo
 /* these must be defined before the saved state is loaded below */
@@ -817,10 +817,20 @@ function setAdmin(on, quiet) {                      // the app has no sign-out b
   if (on) { S.label = adminName(S.quiet); adminMarkWrite(S.quiet); net.adminNext = 0; } else { S.label = ''; S.cp = {}; S.cl = []; adminMarkClear(); }
   commit(); updateBcast();
 }
+/* A phone that was signed in as the organiser phone becomes a quiet admin when the quiet link (with the valid key) is opened on it: it takes the quiet name like any other phone,
+   keeps every admin power, and stops writing the organiser record (and removes that record if it names this phone, so it is not listed twice). */
+function demoteToQuiet() {
+  var team = S.team, wasMe = !!(S.adminInfo && S.adminInfo.id === S.id);
+  setAdmin(true, true);
+  if (wasMe) { S.adminInfo = null; net.adminSeen = null; save(); }
+  if (wasMe && syncOn()) http('GET', base() + '/admin.json').then(function (a) { if (a && a.id === S.id && S.team === team) return http('DELETE', base() + '/admin.json?print=silent'); }).catch(function () {});
+}
 async function applyAdminKey(key, quiet) {
   var r = await checkAdminKey(key);
   if (r === 'ok') {
-    if (!S.admin) { setAdmin(true, quiet); toast('Admin mode on'); } else toast('You are already an admin');
+    if (!S.admin) { setAdmin(true, quiet); toast('Admin mode on'); }
+    else if (quiet && !S.quiet) { demoteToQuiet(); toast('This phone is now a quiet admin: ' + S.label); }       // the quiet link opened on a phone that was signed in as the organiser phone
+    else toast('You are already an admin');
     if (started) {
       var typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       if (modal || typing) liveUpdate();
