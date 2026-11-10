@@ -297,6 +297,7 @@ if (KEY) {
   check('A brand-new phone is not the admin', (await st(fresh)).admin === false);
   const adm = await rest('GET', `events/${TEAM}/admin`);
   check('The organiser record in the database holds only id, fixed name and heartbeat', adm && adm.l === "Joseph's Phone (Admin)" && Object.keys(adm).sort().join() === 'hb,id,l');
+  check('An open organiser phone keeps announcing itself: the heartbeat in the database moves on by itself (within 25 s)', adm && await until(async () => { const a2 = await rest('GET', `events/${TEAM}/admin`); return a2 && a2.hb > adm.hb; }, 25000));
 } else console.log('SKIP  organiser phone tests (no ADMIN_KEY_FILE)');
 
 /* ---------- 14. no errors anywhere ---------- */

@@ -1,7 +1,8 @@
 // Real-team join check: opens the volunteer link of YOUR real team on the deployed site with a fresh phone, the way a volunteer would, and confirms
 //   - it joins (green bar), appears in the database with its name and app level, and sees the organiser phone in its Phones list
 //   - the same inside Instagram's built-in browser ("Continue here anyway")
-//   - the organiser phone (the real one, read from the database) is listed and heard recently
+//   - the organiser phone (the real one, read from the database) has its record, so every phone lists it. How recently it was heard is printed as a NOTE only:
+//     it depends on whether a real person has the app open, not on the app
 // then removes its own test record. It reads the team code from the local link file and never prints it.
 //   BASE_URL=https://ecomsoc-checkout.web.app/ LINK_FILE=../VOLUNTEER-MESSAGE.md node team-check.mjs      (BROWSER=webkit for Safari's engine)
 import { chromium, webkit, devices } from 'playwright';
@@ -49,7 +50,10 @@ for (const [name, opt] of [['a volunteer opening the link in Safari or Chrome', 
   check('...it appears in the database for everyone, with its name and the newest app level', await until(async () => { const r = await myRec(v.id); return r && /^Sync check/.test(r.l || '') && r.app >= 4; }, 15000), JSON.stringify(await myRec(v.id) && { l: (await myRec(v.id)).l, app: (await myRec(v.id)).app }));
   const rows = async () => v.page.evaluate(() => CC.teamPhones().map(r => ({ n: r.name, me: r.me, admin: r.admin })));
   check('...its Phones list shows the organiser phone first and itself', await until(async () => { const r = await rows(); return r.length >= 2 && r[0].admin && /Admin/.test(r[0].n) && r.some(x => x.me); }, 20000), JSON.stringify(await rows()));
-  check('...the organiser phone is heard recently by the database (so the other phones know it is there)', ((await get(`events/${TEAM}/admin`)) || {}).hb > Date.now() - 120000, 'heard ' + Math.round((Date.now() - ((await get(`events/${TEAM}/admin`)) || {}).hb) / 1000) + ' s ago');
+  const adm = (await get(`events/${TEAM}/admin`)) || {};
+  check('...the organiser phone has its record in the database (so every phone lists it, even when that phone is asleep)', typeof adm.id === 'string' && adm.id.length >= 6 && /Admin/.test(adm.l || '') && typeof adm.hb === 'number', JSON.stringify({ l: adm.l, hasId: !!adm.id }));
+  const quietFor = Math.round((Date.now() - (adm.hb || 0)) / 1000);          // (information only: whether a real person's phone is awake right now says nothing about the app, so it is never a pass or fail)
+  console.log(`NOTE  organiser phone last heard ${quietFor < 120 ? quietFor + ' s' : Math.round(quietFor / 60) + ' min'} ago` + (quietFor >= 120 ? ' - its app is closed or in the background right now (normal when nobody is using it; open the app on that phone and it reports in within seconds)' : ' - it is online'));
   check('No JavaScript errors', v.errors.length === 0, v.errors.join(' | '));
   await v.ctx.close();
 }
