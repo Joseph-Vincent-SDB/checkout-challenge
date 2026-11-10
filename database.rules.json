@@ -119,6 +119,18 @@
                   ".validate": false
                 }
               }
+            },
+            "claims": {
+              "$slot": {
+                ".write": "$team.length == 8 && $slot.matches(/^[0-9]{1,4}$/) && (!data.exists() || !newData.exists() || data.child('id').val() == newData.child('id').val())",
+                ".validate": "newData.hasChildren(['id'])",
+                "id": {
+                  ".validate": "newData.isString() && newData.val().length >= 6 && newData.val().length <= 24"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              }
             }
           }
         },

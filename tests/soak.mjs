@@ -222,6 +222,7 @@ console.log(`Totals: customers=${sum.customers} served=${sum.served} correct=${s
 
 /* ---------- clean up ---------- */
 for (const ep of Object.keys((await rest('GET', `events/${TEAM}/epochs`)) || {})) for (const id of Object.keys((await rest('GET', `events/${TEAM}/epochs/${ep}/devices`)) || {})) await fetch(`${DB}/events/${TEAM}/epochs/${ep}/devices/${id}.json`, { method: 'DELETE' });
+for (const ep of Object.keys((await rest('GET', `events/${TEAM}/epochs`)) || {})) for (const k of Object.keys((await rest('GET', `events/${TEAM}/epochs/${ep}/claims`)) || {})) await fetch(`${DB}/events/${TEAM}/epochs/${ep}/claims/${k}.json`, { method: 'DELETE' });          // the serve numbers
 await fetch(`${DB}/events/${TEAM}/meta.json`, { method: 'DELETE' }); await fetch(`${DB}/events/${TEAM}/ctl.json`, { method: 'DELETE' }); await fetch(`${DB}/events/${TEAM}/admin.json`, { method: 'DELETE' });
 for (const p of phones) await p.ctx.close().catch(() => {});
 await browser.close(); if (browserWk) await browserWk.close();

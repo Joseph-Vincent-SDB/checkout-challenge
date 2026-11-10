@@ -79,6 +79,20 @@ const steps = [
   ['ctl: unknown top-level field still refused', `${T}/ctl`, ctl({ rev: 11, evil: 'x' }), false],
   ['ctl: missing a required field still refused', `${T}/ctl`, { rev: 11, paused: false, locked: false, mem: true, hot: 70 }, false],
   ['ctl: the biggest record the app can send', `${T}/ctl`, ctl({ rev: 12, poll: 30, keep: 200, qoff: 'E01,E02,E03,E04,E05,E06,E07,E08,E09,E10,H01,H02,H03,H04,H05,H06,H07,H08,H09', hold: Array.from({ length: 14 }, (_, i) => pid(i)).join(','), gone: Array.from({ length: 14 }, (_, i) => pid(20 + i)).join(','), rl: 'abcdefghij', log: Array.from({ length: 8 }, (_, i) => (1700000000000 + i) + '|Joseph|' + 'y'.repeat(60)).join('\n'), dm: dmOf(12, 'z'.repeat(140), 'warn'), msg: { id: 'm1', t: 'x'.repeat(140), k: 'warn' } }), true],
+  ['claims: a phone claims serve number 66', `${T}/epochs/e0/claims/66`, { id: ID }, true],
+  ['claims: the same phone repeating its own claim (the reply was lost) is accepted', `${T}/epochs/e0/claims/66`, { id: ID }, true],
+  ['claims: ANOTHER phone cannot take serve number 66 (this is what stops a double serve)', `${T}/epochs/e0/claims/66`, { id: 'fedcba654321' }, false],
+  ['claims: serve number 67 is free for the other phone', `${T}/epochs/e0/claims/67`, { id: 'fedcba654321' }, true],
+  ['claims: a four digit number is fine', `${T}/epochs/e0/claims/5000`, { id: ID }, true],
+  ['claims: a five digit number is refused', `${T}/epochs/e0/claims/12345`, { id: ID }, false],
+  ['claims: a non-numeric slot is refused', `${T}/epochs/e0/claims/abc`, { id: ID }, false],
+  ['claims: a negative or decimal slot is refused', `${T}/epochs/e0/claims/-1`, { id: ID }, false],
+  ['claims: a phone id that is too short is refused', `${T}/epochs/e0/claims/68`, { id: 'abc' }, false],
+  ['claims: a phone id of 25 characters is refused', `${T}/epochs/e0/claims/68`, { id: 'x'.repeat(25) }, false],
+  ['claims: a claim without an id is refused', `${T}/epochs/e0/claims/68`, {}, false],
+  ['claims: an extra field is refused', `${T}/epochs/e0/claims/68`, { id: ID, evil: 1 }, false],
+  ['claims: the id as a number is refused', `${T}/epochs/e0/claims/68`, { id: 123456789 }, false],
+  ['claims: text instead of a claim is refused', `${T}/epochs/e0/claims/68`, 'mine', false],
   ['admin: valid organiser record', `${T}/admin`, { id: ID, l: "Joseph's Phone (Admin)", hb: 1700000000000 }, true],
   ['admin: extra field', `${T}/admin`, { id: ID, l: 'x', hb: 1, evil: 1 }, false],
   ['elsewhere: a made-up path under the team', `${T}/other`, { a: 1 }, false],
@@ -96,6 +110,7 @@ for (const [name, p, value, expected] of steps) {
   else okCount++;
   if (e.allowed) db = setIn(db, p.split('/').filter(Boolean), JSON.parse(JSON.stringify(value)));
 }
+check('Rules file: a claim can be deleted (test clean-up and the organiser can clear a slot)', checkWrite(rules, `${T}/epochs/e0/claims/66`, null, db).allowed);
 check('The stand-in database used by the other tests answers every one of those ' + steps.length + ' cases the same way as the rules file', mismatch.length === 0, mismatch.join('; '));
 check('Reads: a team code of 8 characters can be read', checkRead(rules, 'events/ABCD2345/ctl'));
 check('Reads: a made-up short code, the whole database and the list of events cannot', !checkRead(rules, 'events/ABC/ctl') && !checkRead(rules, '') && !checkRead(rules, 'events'));

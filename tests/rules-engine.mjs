@@ -4,6 +4,9 @@
 // the final proof is still `rules-check.mjs --live` against the real database after the rules are published.
 import fs from 'node:fs';
 
+// the rules language has string.matches(/regex/); plain JavaScript strings do not, so it is added for the evaluator
+if (!String.prototype.matches) Object.defineProperty(String.prototype, 'matches', { value: function (re) { return re.test(String(this)); }, configurable: true });
+
 export function loadRules(file) { return JSON.parse(fs.readFileSync(file, 'utf8')).rules; }
 
 function snap(v) {

@@ -313,6 +313,7 @@ for (const p of pages) await p.ctx.close().catch(() => {});
 for (const team of [TEAM, TEAM_B]) {
   const eps = (await rest('GET', `events/${team}/epochs`)) || {};
   for (const ep of Object.keys(eps)) for (const id of Object.keys((await rest('GET', `events/${team}/epochs/${ep}/devices`)) || {})) await rest('DELETE', `events/${team}/epochs/${ep}/devices/${id}`);
+  for (const ep of Object.keys(eps)) for (const k of Object.keys((await rest('GET', `events/${team}/epochs/${ep}/claims`)) || {})) await rest('DELETE', `events/${team}/epochs/${ep}/claims/${k}`);
   for (const n of ['ctl', 'meta', 'admin']) await rest('DELETE', `events/${team}/${n}`);
 }
 check('Everything the test wrote to the real database was removed again', (await rest('GET', `events/${TEAM}`)) === null && (await rest('GET', `events/${TEAM_B}`)) === null);

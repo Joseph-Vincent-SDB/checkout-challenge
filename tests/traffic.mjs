@@ -242,7 +242,8 @@ const di = await A.evaluate(() => CC.deliveryInfo());
 check('The delivery panel on the organiser phone shows all online phones have the latest settings', di && di.waiting.length === 0 && di.applied === di.online && di.online >= N - 1, JSON.stringify(di && { a: di.applied, o: di.online, w: di.waiting.slice(0, 3) }));
 const reqPerSecPerPhone = mock.stats.total / ((runMs + 1) / 1000) / (N + 2);
 console.log(`Database load: ${mock.stats.total} requests, about ${reqPerSecPerPhone.toFixed(2)} per second per phone`);
-check('Network use stays gentle with many phones (under 2.5 requests per second per phone)', reqPerSecPerPhone < 2.5, reqPerSecPerPhone.toFixed(2));
+// every phone here finishes a customer every few seconds (real use is a customer or two a minute), and each serve now also claims its serve number, so this is a guard against runaway request loops rather than a budget
+check('Network use stays gentle with many phones (under 3 requests per second per phone, with every phone serving customers back to back)', reqPerSecPerPhone < 3, reqPerSecPerPhone.toFixed(2));
 const all = [...pages];
 const jsErr = all.flatMap(p => p.errors).filter(e => !NOISE.test(e));
 check('No JavaScript errors on any of the ' + all.length + ' phones', jsErr.length === 0, jsErr.slice(0, 3).join(' | '));

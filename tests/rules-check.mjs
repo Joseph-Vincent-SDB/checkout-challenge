@@ -125,6 +125,23 @@ await denied('Text for the charging flag is refused', 'PUT', D, dev({ rev: 21, c
 await denied('An unknown field next to the newer ones is still refused', 'PUT', D, dev({ rev: 21, cr: 41, evil: 'x' }));
 await allowed('The record from the older app version is still accepted after all this', 'PUT', D, dev({ rev: 22, app: 2 }));
 
+// serve claims: "serve number N" can be created once, which is what stops two phones from both handing out the last cup
+const CL = `${T}/epochs/e0/claims`;
+await allowed('A phone can claim serve number 66', 'PUT', `${CL}/66`, { id: 'abcdef123456' });
+await allowed('...and repeat its own claim (a lost reply must not matter)', 'PUT', `${CL}/66`, { id: 'abcdef123456' });
+await denied('...but another phone cannot take serve number 66 (no double serve)', 'PUT', `${CL}/66`, { id: 'fedcba654321' });
+await allowed('...serve number 67 is free for the other phone', 'PUT', `${CL}/67`, { id: 'fedcba654321' });
+{ const r = await fetch(`${DB}/${CL}.json?orderBy=%22%24key%22&limitToLast=1`); const j = r.status === 200 ? await r.json() : null; check('The highest claimed serve number can be read (orderBy $key, limitToLast 1)', j && Object.keys(j).join() === '67' && j['67'].id === 'fedcba654321', 'HTTP ' + r.status + ' ' + JSON.stringify(j)); }
+await denied('A five digit serve number is refused', 'PUT', `${CL}/12345`, { id: 'abcdef123456' });
+await denied('A non-numeric serve number is refused', 'PUT', `${CL}/abc`, { id: 'abcdef123456' });
+await denied('A claim with a phone id that is too short is refused', 'PUT', `${CL}/68`, { id: 'abc' });
+await denied('A claim with a phone id of 25 characters is refused', 'PUT', `${CL}/68`, { id: 'x'.repeat(25) });
+await denied('A claim with an extra field is refused', 'PUT', `${CL}/68`, { id: 'abcdef123456', evil: 1 });
+await denied('A claim without an id is refused', 'PUT', `${CL}/68`, { who: 'abcdef123456' });
+await denied('Text instead of a claim is refused', 'PUT', `${CL}/68`, 'mine');
+await call('DELETE', `${CL}/66`); await call('DELETE', `${CL}/67`);
+{ const r = await call('GET', CL); check('Test claims removed', r.status === 200 && r.json === null, JSON.stringify(r.json)); }
+
 // organiser phone record (admin)
 const AD = `${T}/admin`;
 await allowed('Valid organiser-phone record is accepted', 'PUT', AD, { id: 'abcdef123456', l: "Joseph's Phone (Admin)", hb: Date.now() });

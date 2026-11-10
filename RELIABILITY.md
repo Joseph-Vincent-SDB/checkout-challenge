@@ -48,7 +48,7 @@ Test engines: Chromium (Chrome and Android) and WebKit (the engine inside every 
 | Several phones serve at once | Exact total. Each phone only writes its own record. | `sync.mjs` (2), soak |
 | Phone offline while others serve | Catches up exactly when back. Nothing lost or doubled. | `sync.mjs` (3), soak |
 | Last cups | Below 15 left, Serve first fetches the latest count and turns into "Sold out" if the food just went. Screens update by themselves. | `sync.mjs` (9) |
-| **Two phones tap Serve on the very last cup in the same instant** | Both can succeed. Count can read one over. **Known limit** (see below). | `sync.mjs` (9) |
+| **Many phones tap Serve on the last cups in the same instant** | Every serve first claims its serve number in the database, which lets only the first phone create it, so exactly as many serves succeed as there are portions and the others are told it is sold out. 20 phones tapping together on 1, 3, 8 and 15 portions: exactly 1, 3, 8 and 15 served. A phone with no connection, or on database rules that do not know claims, serves as before (offline phones are the only way left to over-serve). | `race.mjs`, `sync.mjs` (9) |
 | Reset | New "epoch" for everyone, asks first, needs a connection, deletes nothing. | `sync.mjs` (7, 8), `scenarios.mjs` (4) |
 | Reset while a phone is offline or mid-customer | The phone adopts the new count when it connects. Its customer carries on. | `sync.mjs` (8), `scenarios.mjs` (4) |
 | Change total food or adjust by hand | Shared with everyone. Rapid taps over a slow network are not lost. | `sync.mjs` (7, 15) |
@@ -106,6 +106,16 @@ Limits: admin-only is enforced inside the app, not by the database (there are no
 | Many phones online at once | See `traffic.mjs`: 24 volunteer phones and 2 organiser phones, real customers, offline spells and refreshes, while the organiser changes something every few seconds. Every change reaches every phone; the totals agree exactly at the end. | `traffic.mjs` |
 | Rules file | `database.rules.json` itself is evaluated for 62 cases (every newer field at and beyond its limits), and the stand-in database used by the tests is compared case by case. A hole this found (a plain text value accepted where per-phone messages go) was fixed. | `rules-file.mjs` |
 
+## D00. Heavy traffic, every button and the last cup (final checks before publishing)
+
+| Test | Result |
+|---|---|
+| **Every button** (`buttons.mjs`) | All 70 button actions plus the hold-to-reset gesture tapped on real phones, each with its effect checked; 87 of 87 on Chromium and on WebKit locally, and 88 of 88 against the DEPLOYED site and the REAL database on both engines. |
+| **Last cup** (`race.mjs`) | 20 phones tap Serve together on 1, 3, 8 and 15 portions: exactly 1, 3, 8 and 15 serves, every time (23 of 23). The previous build served 13, 20, 20 and 20. |
+| **48 phones at once** (`traffic.mjs`, Chromium, 150 s) | 14 of 14: 241 customers, 65 offline spells, 16 refreshes; a change reached an online phone in a median 1.9 s (95th percentile 5.2 s, worst 8.4 s); every phone and the database agree exactly; no errors. |
+| **36 phones, Chromium and WebKit mixed** | A change reached an online phone in a median 1.5 s (worst 4.3 s). |
+| **156 phones in one team** (`crowd.mjs`) | 12 of 12: Auto slowed the team numbers to every 12 s by itself; every organiser change still reached every real phone in under 4 s (the settings are checked on their own timer); the console listed all 156 phones; no main-thread task over 50 ms; each phone downloaded about 330 KB a minute (about 50 MB a minute for the whole team, which is why the console shows a load estimate against the free plan: a team of 150 busy phones for 4 hours would exceed the free 10 GB a month, a stall of 5 to 30 phones uses a small fraction). |
+
 ## D0. High-traffic runs (many phones online at once)
 
 `node traffic.mjs`: 24 volunteer phones and 2 organiser phones for 90 seconds against a stand-in database with 25 to 115 ms of delay on every request. Volunteers run real customers (one or two a minute per phone is normal; the test pushes about three), go offline for a few seconds and refresh, while the organiser phones change a mode, pause, lock, update speed, reserve, a question, a hold, a hide, a message or Undo every few seconds. Results (the latest runs, Chromium, and Chromium mixed with WebKit):
@@ -132,7 +142,7 @@ Soaks against the real database, all passing: 5 phones for 4 minutes (144 custom
 ## E. Known limits (not bugs, but be aware)
 
 1. **Live to within about 2 seconds, not instant.**
-2. **Last-cup race.** Two phones tapping Serve for the last cup within about a second of each other can both serve it. The count then reads one over, and the Summary says so. Keep a physical eye on the food at the very end. **The organiser's reserve removes the race for volunteers:** set "Keep the last portions back" to at least the number of volunteer phones (for example 6 phones: keep 6). Volunteer phones then stop starting customers while food is still left, at most one customer per phone is still in progress, and the organiser phone alone hands out the kept-back food. (In the 24-phone traffic test the stock is large on purpose; running the stock to zero with 24 phones tapping at once over-served by 1, as this limit says.)
+2. **Over-serving by a phone with no connection.** Connected phones can no longer over-serve (each serve claims its number, see C). A phone that is offline cannot claim, so if several phones are offline near the end of the stock the count can still read over (the Summary then says "over-served by N"). The red bar tells you when a phone is offline. The organiser's reserve ("Keep the last portions back") is still useful: set it to the number of volunteer phones and the organiser phone alone hands out the kept-back food.
 3. **An offline phone cannot see other phones' serves.** If several phones are offline near the end, food can be over-served. The red bar tells you.
 4. **Reset needs a connection** and affects every phone. It cannot be undone from the app (the old numbers stay in the database).
 5. **iPhone Home Screen app has separate storage** from Safari. Type the team code once in the installed app.

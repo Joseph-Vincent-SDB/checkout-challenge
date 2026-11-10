@@ -71,6 +71,14 @@ function validAdmin(v) {               // mirrors the "admin" rules: who the org
   if (!Object.keys(v).every(k => ['id', 'l', 'hb'].includes(k))) return false;
   return typeof v.id === 'string' && v.id.length >= 6 && v.id.length <= 24 && isStr(v.l, 24) && isNum(v.hb);
 }
+function validClaim(slot, v, old) {         // mirrors the "claims" rules: serve number N can be created once; the same phone may repeat its own claim
+  if (LEGACY) return false;                // the rules from before claims existed refuse the whole path
+  if (!/^[0-9]{1,4}$/.test(slot)) return false;
+  if (!v || typeof v !== 'object' || Object.keys(v).some(k => k !== 'id')) return false;
+  if (typeof v.id !== 'string' || v.id.length < 6 || v.id.length > 24) return false;
+  if (old && old.id !== v.id) return false;
+  return true;
+}
 function resolveSV(v) {
   if (v && typeof v === 'object') {
     if (v['.sv'] === 'timestamp') return Date.now();
@@ -118,7 +126,11 @@ export function startMock() {
         if (segs[0] !== 'events' || !segs[1] || segs[1].length !== 8) return send(401, { error: 'Permission denied' });
         if (ctl.garbage) { res.writeHead(200, { ...cors, 'content-type': 'text/html' }); return res.end('<html><body>Please log in to the campus Wi-Fi</body></html>'); }   // captive portal
         if (ctl.weird !== null && req.method === 'GET') return send(200, ctl.weird);                                                                                // valid JSON of the wrong shape
-        if (req.method === 'GET') return send(200, getAt(segs));
+        if (req.method === 'GET') {
+          const ob = u.searchParams.get('orderBy'), ll = +u.searchParams.get('limitToLast');
+          if (ob === '"$key"' && ll > 0) { const n = getAt(segs); if (!n || typeof n !== 'object') return send(200, null); const ks = Object.keys(n).sort((a, b) => (+a - +b) || a.localeCompare(b)).slice(-ll); const o = {}; ks.forEach(k => o[k] = n[k]); return send(200, o); }
+          return send(200, getAt(segs));
+        }
         if (ctl.deny) return send(401, { error: 'Permission denied' });
         if (req.method === 'PUT' || req.method === 'PATCH') {
           let val; try { val = prune(resolveSV(JSON.parse(body))); } catch (e) { return send(400, { error: 'Invalid data' }); }
@@ -126,7 +138,11 @@ export function startMock() {
           const isDev = segs.length === 6 && segs[2] === 'epochs' && segs[4] === 'devices';
           const isAdm = segs.length === 3 && segs[2] === 'admin';
           const isCtl = segs.length === 3 && segs[2] === 'ctl';
-          if (isAdm) {
+          const isClaim = segs.length === 6 && segs[2] === 'epochs' && segs[4] === 'claims';
+          if (isClaim) {
+            if (!validClaim(segs[5], val, getAt(segs))) return send(401, { error: 'Permission denied' });
+            this_apply(segs, val);
+          } else if (isAdm) {
             if (!validAdmin(val)) return send(401, { error: 'Permission denied' });
             this_apply(segs, val);
           } else if (isCtl) {

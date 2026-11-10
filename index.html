@@ -965,7 +965,7 @@ function drawQuestion() {
 var net = { pollOk: 0, pollFails: 0, pushFails: 0, pushing: false, polling: false, pushStart: 0, pollStart: 0,
   nextPoll: 0, nextPush: 0, lastPush: 0, pollErr: '', pollMsg: '', pushErr: '', pushMsg: '', seen: {}, pollPromise: null, metaPending: false, metaTimer: null, metaWant: null, metaBusy: false,
   ctlWant: false, ctlBusy: false, ctlTimer: null, ctlFail: 0, ctlRev: 0, ctlPollAt: 0, adminSeen: null, adminPollAt: 0, adminNext: 0, adminPinging: false, adminFail: 0,
-  reportDirty: false, ctlFetching: false, slim: false, slimUntil: 0, ctlSlim: false, ctlSlimUntil: 0, ctlSentAt: 0, rx: [], bat: null, refreshTo: '' };
+  reportDirty: false, ctlFetching: false, noClaimsUntil: 0, claimTopUntil: 0, claimEp: '', lastClaim: 0, slim: false, slimUntil: 0, ctlSlim: false, ctlSlimUntil: 0, ctlSentAt: 0, rx: [], bat: null, refreshTo: '' };
 function syncOn() { return !!(SYNC_URL && S.team); }
 function base() { return SYNC_URL + '/events/' + S.team; }
 function unsent() { return Math.max(0, S.rev - S.acked); }
@@ -1234,7 +1234,7 @@ function localReset() {
   S = fresh(); for (var k in keep) S[k] = keep[k]; save(); toast('Reset done'); go('home');
 }
 function joinTeam(code) {
-  S.id = newId(); S.team = code; S.epoch = 'e0'; S.peers = {}; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0;
+  net.lastClaim = 0; net.claimEp = ''; net.noClaimsUntil = 0; net.claimTopUntil = 0; S.id = newId(); S.team = code; S.epoch = 'e0'; S.peers = {}; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0;
   S.startStock = CONFIG.defaultStock; S.skipJoin = true; S.ctl = null; S.seenMsg = ''; S.seenDm = ''; S.seenRl = ''; S.rlInit = false; S.cp = {}; S.cl = []; S.adminInfo = null; net.adminSeen = null; net.adminPollAt = 0; net.ctlPollAt = 0; net.adminNext = 0; net.ctlWant = false; net.ctlRev = 0; updateBcast(); net.seen = {}; net.pollOk = 0; net.pollFails = 0; net.pollErr = ''; net.pushErr = ''; net.metaPending = false; net.metaWant = null; save(); wakeSync();
 }
 function leaveTeam() { S.team = ''; S.peers = {}; S.ctl = null; S.seenMsg = ''; S.seenDm = ''; S.seenRl = ''; S.rlInit = false; S.cp = {}; S.cl = []; S.adminInfo = null; net.adminSeen = null; net.ctlPollAt = 0; net.adminPollAt = 0; net.ctlWant = false; updateBcast(); S.skipJoin = true; net.seen = {}; net.pollErr = ''; net.pushErr = ''; save(); }
@@ -1980,14 +1980,45 @@ function doAnswer(k) {
 function doRetry() {
   var cu = cur(); cu.attempt++; S.c.retries++; cu.picked = null; cu.ok = false; cu.qid = drawQuestion(); cu.step = 'drop'; commit(); lock(); render();
 }
+/* Every serve first CLAIMS its number in the database ("serve number 67 of this round"). The database only lets the first phone create a number, so two phones
+   can never both hand out the last cup, however many tap at the same instant. A phone that is offline, or whose database rules do not know claims yet,
+   serves as before (it cannot be stopped without a connection). Returns 'ok' (serve), 'sold' (no portion left), 'busy' (the database is answering but so many phones are claiming that there was no time: tap again) or 'skip' (could not use claims). */
+async function claimServe(deadline) {            // deadline: the time by which a customer must be served whatever the network does
+  if (!syncOn() || syncState() !== 'ok' || Date.now() < net.noClaimsUntil || deadline - Date.now() < 300) return 'skip';
+  var team = S.team, ep = S.epoch, cap = S.startStock + totals().adj, url = base() + '/epochs/' + ep + '/claims';
+  if (net.claimEp !== ep) { net.claimEp = ep; net.lastClaim = 0; }
+  var slot = Math.max(totals().c.served, net.lastClaim) + 1, n = 0, busy = false, to = function () { return Math.max(400, Math.min(2500, deadline - Date.now())); };
+  var topUrl = url + '.json?orderBy=%22%24key%22&limitToLast=1', highest = function (top) { var m = 0; if (top && typeof top === 'object') for (var k in top) m = Math.max(m, +k || 0); return m; };
+  if (Date.now() < net.claimTopUntil) {                // while many phones are serving, this phone's own count is too old to guess the next number: ask for the highest one first
+    try { var t0 = await http('GET', topUrl, null, { timeout: to() }); var m0 = highest(t0); net.lastClaim = Math.max(net.lastClaim, m0); slot = Math.max(slot, m0 + 1); } catch (e0) { return 'skip'; }
+  }
+  while (Date.now() < deadline - 250 && n++ < 60) {
+    if (slot > cap) return 'sold';                                                   // every portion already has a serve number
+    try { await http('PUT', url + '/' + slot + '.json?print=silent', JSON.stringify({ id: S.id }), { timeout: to() }); net.lastClaim = slot; return 'ok'; }
+    catch (e) {
+      if (S.team !== team || S.epoch !== ep) return 'skip';
+      if (!(e && (e.status === 400 || e.status === 401 || e.status === 403))) return 'skip';       // no connection, slow or failing database: serve as before
+      var top; try { top = await http('GET', topUrl, null, { timeout: to() }); } catch (e2) { return 'skip'; }
+      var m = highest(top); net.claimTopUntil = Date.now() + 60000;
+      if (m < slot) { net.noClaimsUntil = Date.now() + 300000; return 'skip'; }                    // refused although nothing is taken: the rules do not know claims (older rules)
+      net.lastClaim = Math.max(net.lastClaim, m); slot = Math.max(slot, m) + 1; busy = true;       // that number is taken by another phone: go on from the highest one
+    }
+  }
+  return busy ? 'busy' : 'skip';          // out of time while the database was answering: do not serve blindly, ask for another tap
+}
 async function doServe() {
   var cu = cur(); if (!cu || cu.step !== 'result' || !cu.ok || serving) return;
   serving = true;
   var btn = $('#servebtn'); if (btn) btn.disabled = true;
-  /* near the end, check the team's latest count first so two phones cannot both hand out the last cups */
+  var t0 = Date.now();          // checking the count and claiming together never hold a customer up for more than about 2 seconds, whatever the network does
+  /* near the end, first fetch the team's latest count (a phone that served without a claim, offline or on an older copy, is only in the count) */
   if (syncOn() && syncState() === 'ok' && remaining() <= CONFIG.lowStock) { try { await Promise.race([pollNow(1500), new Promise(function (r) { setTimeout(r, 1600); })]); } catch (e) {} }
   if (cur() !== cu) { serving = false; return; }
-  if (remaining() > 0) { S.c.served++; commit(); endCustomer(); }
+  var claim = await claimServe(t0 + 2300);
+  if (cur() !== cu) { serving = false; return; }
+  if (claim === 'sold') { serving = false; toast('Sold out: another phone just served the last one'); net.nextPoll = 0; render(); return; }
+  if (claim === 'busy') { serving = false; toast('Busy: tap Serve again'); render(); return; }
+  if (claim === 'ok' || remaining() > 0) { S.c.served++; commit(); endCustomer(); }
   else { serving = false; toast('Sold out: another phone just served the last one'); render(); }
 }
 function endLost() { S.c.lost++; commit(); endCustomer(); }
