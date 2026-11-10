@@ -330,7 +330,7 @@ var CONFIG = {
   membershipUrl: 'https://campus.hellorubric.com/?s=14780',   // free club membership sign-up (Rubric). Leave '' to skip the membership step
   pollMs: 2000,            // how often each phone checks the team's numbers
   heartbeatMs: 15000,      // how often an idle phone says it is still online
-  quietLabel: "Skyson's phone",   // fixed name for a quiet admin phone (24 characters at most)
+  quietLabel: "Skyson's Phone",   // fixed name for a quiet admin phone (24 characters at most)
   adminLabel: "Joseph's Phone (Admin)",   // name shown for the organiser phone (24 characters at most)
   adminHash: 'aa56b447259ba07e8efb8fc39eb1e4a4864cdf866ab5d90b03c1aa4d59f038e5'   // SHA-256 of the private admin key (the key itself is never in this file)
 };
@@ -365,8 +365,8 @@ var QUESTIONS = [
 /* ============================ END OF EDITABLE DATA ============================ */
 
 var LETTERS = ['A', 'B', 'C', 'D'];
-var APP_VERSION = '2.1';
-var APP_LEVEL = 3;       // written into each phone's record, so the organiser can see which phones still run an older copy
+var APP_VERSION = '2.2';
+var APP_LEVEL = 4;       // written into each phone's record, so the organiser console can list every phone that is not on this newest copy
 var UNDOKEY = 'ecomsoc-admin-undo';               // the organiser phone's own list of changes it can undo
 /* these must be defined before the saved state is loaded below */
 var QRE = /^[A-Za-z0-9]{1,8}$/, PRE = /^[a-z0-9]{6,24}$/i;      // what a question id and a phone id look like
@@ -1280,6 +1280,19 @@ function maybeReload() {       // only when nothing can be lost: idle on Home, o
   if (idleHome || idleJoin) { pendingReload = false; try { location.reload(); } catch (e) {} }
 }
 setInterval(maybeReload, 3000);
+/* Look for a newer copy of the app now and then, so a phone left open on Home for hours still gets a new version: every 10 minutes while the app is open and the phone
+   has signal, and whenever the phone comes back to the app or gets its signal back. The new copy installs in the background and the app reloads itself once the phone is
+   idle on Home (never in the middle of a customer). */
+var updMs = 600000, lastUpd = 0;
+try { var uo = +localStorage.getItem('ecomsoc-update-ms'); if (uo >= 2000) updMs = uo; } catch (e) {}      // (the tests use a shorter time)
+function checkUpdate(force) {
+  if (!('serviceWorker' in navigator)) return;
+  var now = Date.now(); if (!force && now - lastUpd < Math.min(updMs, 30000)) return; lastUpd = now;
+  try { navigator.serviceWorker.getRegistration().then(function (r) { if (r && r.update) r.update().catch(function () {}); }).catch(function () {}); } catch (e) {}
+}
+setInterval(function () { if (document.visibilityState !== 'hidden' && navigator.onLine !== false) checkUpdate(true); }, updMs);
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkUpdate(false); });
+window.addEventListener('online', function () { checkUpdate(false); });
 
 /* ---------- in-app browsers (Instagram, Facebook, TikTok ...) ----------
    Links tapped inside a chat usually open in the app's own built-in browser. It has its own separate storage,
@@ -2235,7 +2248,7 @@ window.addEventListener('storage', function (e) {
 window.CC = { setAdmin: setAdmin, teamPhones: teamPhones, liveGrid: liveGrid, adminFp: adminFp, cleanCtl: cleanCtl, paceInfo: paceInfo, etaText: etaText, adminSet: adminSet, adminAlerts: adminAlerts, adminReport: adminReport, recordSample: recordSample, samples: function () { return samples; }, flushCtl: flushCtl, parseAdminKey: parseAdminKey, buildHandoff: buildHandoff, iabTapOpen: iabTapOpen, detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
   commit: commit, remaining: remaining, totals: totals, syncState: syncState, net: net, tick: tick, pollNow: pollNow, syncOn: syncOn, unsent: unsent,
   deliveryInfo: deliveryInfo, undoLast: undoLast, undoStack: function () { return undoStack; }, blockInfo: blockInfo, pollEveryMs: pollEveryMs, autoPollSecs: autoPollSecs, qOffMap: qOffMap, adminCsv: adminCsv, MODES: MODES, activeMode: activeMode, displayLog: displayLog,
-  cleanPatch: cleanPatch, ctlBody: ctlBody, pendingNote: pendingNote, rxPerMin: rxPerMin, livePhones: livePhones, APP_LEVEL: APP_LEVEL };
+  cleanPatch: cleanPatch, ctlBody: ctlBody, pendingNote: pendingNote, rxPerMin: rxPerMin, livePhones: livePhones, APP_LEVEL: APP_LEVEL, checkUpdate: checkUpdate, updateMs: function () { return updMs; } };
 
 /* join link: https://.../#t=ABCD-EFGH (the code never goes to the web host, it stays after the #).
    Handled at load AND whenever the address changes while the app is already open (for example a scanned QR). */

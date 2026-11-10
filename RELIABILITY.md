@@ -37,7 +37,7 @@ Test engines: Chromium (Chrome and Android) and WebKit (the engine inside every 
 | Old phones without vibration or wake lock | Fail silently. Red or amber hints only. | `run.mjs` |
 | A link tapped inside Instagram or another chat app (built-in browser) | Detected. It tries once to hand over to the default browser, and a full-screen guide says "Open this in Safari/Chrome", with steps, the team code and a Copy link button. Does not join from inside it. A warning bar stays on Home if the volunteer continues anyway. | `scenarios.mjs` (9b) |
 | Safari engine | All suites pass on WebKit. | `BROWSER=webkit` runs |
-| New app version released | Installs from fresh files, reloads itself only when idle on Home or Join. Never mid-customer. | `sw-update.mjs` |
+| New app version released | Installs from fresh files, reloads itself only when idle on Home or Join. Never mid-customer. A phone left open on Home finds the new version by itself (every 10 minutes while open and online, and when it comes back to the app or gets signal back). The organiser console lists every phone that is not on the newest copy and Refresh all phones reloads the idle ones. | `sw-update.mjs` (13), `admin.mjs` P |
 | Random chaos (clicks, reloads, rotation, offline blips, errors) | No errors. Numbers stay valid. Phones agree afterwards. | `scenarios.mjs` (10, monkey) |
 
 ## C. Sharing and the food count

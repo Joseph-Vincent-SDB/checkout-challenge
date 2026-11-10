@@ -41,7 +41,7 @@ const dev0 = mock.db().events[TEAM].epochs = { e0: { devices: {} } };
 const simIds = Array.from({ length: SIM }, (_, i) => 'sim' + String(100000 + i));
 const zero = { customers: 0, follows: 0, already: 0, correct: 0, wrong: 0, retries: 0, skips: 0, hot: 0, full: 0, won: 0, lost: 0, served: 0, members: 0, memberAlready: 0 };
 let simServed = 0;
-simIds.forEach((id, i) => { const s = 2 + (i % 7); simServed += s; dev0.e0.devices[id] = { l: 'Crowd ' + (i + 1), c: { ...zero, customers: s + 2, follows: s + 2, won: s, correct: s, wrong: 2, hot: s + 2, served: s }, adj: 0, rev: 1, hb: Date.now(), app: 3 }; });
+simIds.forEach((id, i) => { const s = 2 + (i % 7); simServed += s; dev0.e0.devices[id] = { l: 'Crowd ' + (i + 1), c: { ...zero, customers: s + 2, follows: s + 2, won: s, correct: s, wrong: 2, hot: s + 2, served: s }, adj: 0, rev: 1, hb: Date.now(), app: 4 }; });
 const keep = setInterval(() => { const d = mock.db().events[TEAM].epochs.e0.devices; simIds.forEach(id => { if (d[id]) { d[id].hb = Date.now(); d[id].rev++; } }); }, 6000);   // every simulated phone says "still here" every 6 seconds
 
 const pages = [];

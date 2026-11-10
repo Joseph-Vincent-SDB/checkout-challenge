@@ -66,7 +66,7 @@ const TESTKEY = (() => { let k = ''; for (let i = 0; i < 24; i++) k += chars[cry
 const OTHERKEY = (() => { let k = ''; for (let i = 0; i < 24; i++) k += chars[crypto.randomInt(32)]; return k; })();
 const TESTHASH = crypto.createHash('sha256').update(TESTKEY).digest('hex');
 const ADMLABEL = "Joseph's Phone (Admin)";
-const QLABEL = "Skyson's phone";
+const QLABEL = "Skyson's Phone";
 const initHash = h => { try { localStorage.setItem('ecomsoc-admin-hash', h); } catch (e) {} };
 const hashOpts = { init: initHash, initArg: TESTHASH };
 const SKEY = 'ecomsoc-checkout-challenge-v1';
@@ -481,7 +481,7 @@ if (want('K')) {
   await until(async () => (await st(Q)) === 'ok', 8000);
   const adminId = (await st0(A)).id, qId = (await st0(Q)).id;
   check('A link with c= instead of a= makes a quiet admin: admin on, quiet on, joined the team', (await st0(Q)).admin === true && (await st0(Q)).quiet === true && (await st0(Q)).team === TEAM);
-  check('...it is named "Skyson\'s phone" (not the organiser name) and the key leaves the address bar', (await st0(Q)).label === QLABEL && !/c=|a=/.test(await Q.evaluate(() => location.href)), (await st0(Q)).label);
+  check('...it is named "Skyson\'s Phone" (not the organiser name) and the key leaves the address bar', (await st0(Q)).label === QLABEL && !/c=|a=/.test(await Q.evaluate(() => location.href)), (await st0(Q)).label);
   check('...it has the ADMIN pill and the organiser console button', await Q.isVisible('.pill.adm') && await Q.isVisible('[data-act=admin-open]'));
   await tap(Q, '[data-act=summary]'); await Q.waitForSelector('#label');
   check('Summary: the quiet admin phone name box is locked to that name', await Q.evaluate(() => document.querySelector('#label').disabled) === true && await Q.evaluate(() => document.querySelector('#label').value) === QLABEL);
@@ -496,19 +496,19 @@ if (want('K')) {
   // what volunteers see
   const rows = async p => (await p.$$eval('#phones .kv', els => els.map(e => e.innerText.replace(/\s+/g, ' ').trim())));
   await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
-  await until(async () => (await rows(V)).some(x => /^Skyson's phone/.test(x)), 16000);
+  await until(async () => (await rows(V)).some(x => /^Skyson's Phone/.test(x)), 16000);
   const rV = await rows(V);
-  check('Volunteer Summary lists the quiet admin as a normal phone with online status, and only the real organiser as admin', rV.some(x => /^Skyson's phone\s+online/.test(x)) && rV.filter(x => /Admin/.test(x)).length === 1 && /^Joseph's Phone \(Admin\)/.test(rV[0]), JSON.stringify(rV));
+  check('Volunteer Summary lists the quiet admin as a normal phone with online status, and only the real organiser as admin', rV.some(x => /^Skyson's Phone\s+online/.test(x)) && rV.filter(x => /Admin/.test(x)).length === 1 && /^Joseph's Phone \(Admin\)/.test(rV[0]), JSON.stringify(rV));
   // what the real organiser phone sees
   await tap(A, '[data-act=summary]'); await A.waitForSelector('#phones');
-  await until(async () => (await rows(A)).some(x => /^Skyson's phone/.test(x)), 16000);
+  await until(async () => (await rows(A)).some(x => /^Skyson's Phone/.test(x)), 16000);
   const rA = await rows(A);
-  check('The organiser phone sees it as a normal phone too, after itself', /^Joseph's Phone \(Admin\) \(you\)/.test(rA[0]) && rA.some(x => /^Skyson's phone\s+online/.test(x)) && !rA.some(x => /Skyson's phone.*Admin/.test(x)), JSON.stringify(rA));
+  check('The organiser phone sees it as a normal phone too, after itself', /^Joseph's Phone \(Admin\) \(you\)/.test(rA[0]) && rA.some(x => /^Skyson's Phone\s+online/.test(x)) && !rA.some(x => /Skyson's Phone.*Admin/.test(x)), JSON.stringify(rA));
   // its own list: organiser first, then itself
   await tap(Q, '[data-act=back-home]').catch(() => {}); await tap(Q, '[data-act=summary]').catch(() => {}); await Q.waitForSelector('#phones');
   await until(async () => (await rows(Q)).length >= 3, 16000);
   const rQ = await rows(Q);
-  check('The quiet admin sees the organiser phone first, then itself "(you)", then the rest', /^Joseph's Phone \(Admin\)/.test(rQ[0]) && /^Skyson's phone \(you\)/.test(rQ[1]), JSON.stringify(rQ));
+  check('The quiet admin sees the organiser phone first, then itself "(you)", then the rest', /^Joseph's Phone \(Admin\)/.test(rQ[0]) && /^Skyson's Phone \(you\)/.test(rQ[1]), JSON.stringify(rQ));
   // admin powers
   await Q.evaluate(() => CC.adminSet({ paused: true })); 
   check('The quiet admin can pause the stall for everyone (reaches the shared settings)', await cloudCtlIs(c => c.paused === true));
@@ -729,7 +729,7 @@ if (want('O')) {
   // a large team slows itself down
   const ep = (mock.get(['events', TEAM, 'meta']) || {}).epoch || 'e0';
   const now = Date.now();
-  for (let i = 0; i < 30; i++) mock.db().events[TEAM].epochs[ep].devices['synth' + String(i).padStart(6, '0')] = { l: 'Synth ' + (i + 1), c: { customers: 1, served: 1 }, adj: 0, rev: 1, hb: now, app: 3 };
+  for (let i = 0; i < 30; i++) mock.db().events[TEAM].epochs[ep].devices['synth' + String(i).padStart(6, '0')] = { l: 'Synth ' + (i + 1), c: { customers: 1, served: 1 }, adj: 0, rev: 1, hb: now, app: 4 };
   check('With 32 phones online Auto slows to 5 s on its own', await volCtl(V, () => CC.livePhones() >= 31 && CC.pollEveryMs() === 5000) , String(await V.evaluate(() => CC.livePhones() + ' phones, ' + CC.pollEveryMs())));
   await openAdmin(A).catch(() => {});
   check('The console lists all 32 phones and is still quick to answer a tap', await until(async () => (await A.$$('#adm-phones [data-act=adm-phone]')).length >= 31, 16000));
@@ -749,7 +749,7 @@ if (want('P')) {
   await openAdmin(A);
   await A.evaluate(() => CC.adminSet({ hot: 60 }));
   check('After a change, the console reports that every online phone has the newest settings', await until(async () => { const d = await A.evaluate(() => CC.deliveryInfo()); return d.online === 2 && d.applied === 2 && d.waiting.length === 0; }, 20000) && /is on 2 of 2 phones ✓/.test(await A.innerText('#adm-deliv')), (await A.innerText('#adm-deliv')).replace(/\n/g, ' | '));
-  check('...each phone reported the settings revision it applied (cr) and its app level', !!ctlCloud() && Object.values(cloudDevices()).every(d => d.cr === ctlCloud().rev && d.app === 3), JSON.stringify(Object.values(cloudDevices()).map(d => [d.cr, d.app])));
+  check('...each phone reported the settings revision it applied (cr) and its app level', !!ctlCloud() && Object.values(cloudDevices()).every(d => d.cr === ctlCloud().rev && d.app === 4), JSON.stringify(Object.values(cloudDevices()).map(d => [d.cr, d.app])));
   // a phone that does not get the settings
   await V2.evaluate(() => { CC.net.ctlPollAt = Date.now() + 1e9; });
   await A.evaluate(() => CC.adminSet({ hot: 50 }));
@@ -776,8 +776,11 @@ if (want('P')) {
   // older app copy
   const ep = (mock.get(['events', TEAM, 'meta']) || {}).epoch || 'e0';
   mock.db().events[TEAM].epochs[ep].devices['oldcopy000001'] = { l: 'Old phone', c: { customers: 0, served: 0 }, adj: 0, rev: 1, hb: Date.now(), app: 2 };
-  const keepAlive = setInterval(() => { try { mock.db().events[TEAM].epochs[ep].devices['oldcopy000001'].hb = Date.now(); mock.db().events[TEAM].epochs[ep].devices['oldcopy000001'].rev++; } catch (e) {} }, 3000);
-  check('A phone on an older copy of the app is listed separately and the alert says to refresh', await until(async () => { const d = await A.evaluate(() => CC.deliveryInfo()); return d.legacy.join() === 'Old phone'; }, 16000) && await A.evaluate(() => CC.adminAlerts().some(a => /Old phone runs an older copy/.test(a.t))) && /older copy on Old phone/.test(await A.innerText('#adm-deliv')));
+  mock.db().events[TEAM].epochs[ep].devices['prevbuild0001'] = { l: 'Previous build', c: { customers: 0, served: 0 }, adj: 0, rev: 1, hb: Date.now(), app: 3 };       // one level behind the newest (level 4) is also "not on the newest copy"
+  const keepAlive = setInterval(() => { try { for (const id of ['oldcopy000001', 'prevbuild0001']) { mock.db().events[TEAM].epochs[ep].devices[id].hb = Date.now(); mock.db().events[TEAM].epochs[ep].devices[id].rev++; } } catch (e) {} }, 3000);
+  check('Phones that are not on the newest copy of the app (any older build) are listed separately and the alert says to refresh', await until(async () => { const d = await A.evaluate(() => CC.deliveryInfo()); return d.legacy.slice().sort().join() === 'Old phone,Previous build'; }, 16000) && await A.evaluate(() => CC.adminAlerts().some(a => /Old phone, Previous build run an older copy|Previous build, Old phone run an older copy/.test(a.t))) && /older copy on Old phone/.test(await A.innerText('#adm-deliv')));
+  check('...each of them is marked "older app copy" on its row in the Phones list', /older app copy/.test(await A.innerText('#adm-live [data-id=oldcopy000001]')) && /older app copy/.test(await A.innerText('#adm-live [data-id=prevbuild0001]')));
+  check('...and phones on the newest copy are not flagged (the real phones here run level ' + (await A.evaluate(() => CC.APP_LEVEL)) + ')', !(await A.evaluate(() => CC.deliveryInfo().legacy.some(n => /Volunteer/.test(n)))));
   clearInterval(keepAlive);
   // refresh all phones
   await V1.evaluate(() => { window.__mark = 1; }); await V2.evaluate(() => { window.__mark = 1; }); await A.evaluate(() => { window.__mark = 1; });
@@ -805,14 +808,14 @@ if (want('P')) {
   await fakeServe(W, 2);
   check('If the database rules are older, phones fall back to the basic record and keep sharing (no "Sharing problem")', await until(async () => (await unsent(W)) === 0 && (await st(W)) === 'ok' && cloudServed() === 2, 16000), (await st(W)) + ' unsent ' + (await unsent(W)));
   const wId = await idOf(W);
-  check('...and what that phone sends then has none of the newer fields', await until(async () => { const d = cloudDevices()[wId]; return d && d.cr === undefined && d.ack === undefined && d.bat === undefined && d.app === 3; }, 12000), JSON.stringify(cloudDevices()[wId]));
+  check('...and what that phone sends then has none of the newer fields', await until(async () => { const d = cloudDevices()[wId]; return d && d.cr === undefined && d.ack === undefined && d.bat === undefined && d.app === 4; }, 12000), JSON.stringify(cloudDevices()[wId]));
   await A2.evaluate(() => CC.adminSet({ paused: true, keep: 5 }));
   check('The organiser\'s basic settings still land (pause) while the newer ones (reserve) cannot, with a clear alert to publish the rules', await cloudCtlIs(c => c.paused === true && c.keep === undefined) && await until(async () => await A2.evaluate(() => CC.adminAlerts().some(a => /database rules are older/.test(a.t))), 8000));
   await A2.evaluate(() => CC.adminSet({ paused: false }));
   mock.ctl.legacyRules = false;
   await A2.evaluate(() => { CC.net.ctlSlimUntil = 0; CC.net.slimUntil = 0; }); await W.evaluate(() => { CC.net.slimUntil = 0; CC.net.reportDirty = true; });
   await A2.evaluate(() => CC.adminSet({ keep: 5 }));
-  check('Once the rules are published the newer fields work again by themselves', await cloudCtlIs(c => c.keep === 5) && await until(async () => Object.values(cloudDevices()).some(d => d.app === 3 && d.cr !== undefined), 16000));
+  check('Once the rules are published the newer fields work again by themselves', await cloudCtlIs(c => c.keep === 5) && await until(async () => Object.values(cloudDevices()).some(d => d.app === 4 && d.cr !== undefined), 16000));
   check('No JS errors', noErr([A, V1, V2, V3, A2, W]), errs([A, V1, V2, V3, A2, W]));
   await reset();
 }

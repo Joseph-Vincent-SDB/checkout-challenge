@@ -33,7 +33,7 @@ const until = async (fn, ms = 10000) => { const t = Date.now(); while (Date.now(
 
 const browser = await ENGINE.launch(IS_CHROMIUM && process.env.CHROME_EXE ? { executablePath: process.env.CHROME_EXE } : {});
 const D = { ...devices['iPhone SE (3rd gen)'] }; delete D.defaultBrowserType; D.viewport = { width: 375, height: 667 };
-const ctx = await browser.newContext(D); await ctx.addInitScript(() => { try { localStorage.setItem('ecomsoc-sync-url', 'off'); } catch (e) {} });
+const ctx = await browser.newContext(D); await ctx.addInitScript(() => { try { localStorage.setItem('ecomsoc-sync-url', 'off'); localStorage.setItem('ecomsoc-update-ms', '3000'); } catch (e) {} });      // (3 seconds instead of 10 minutes, so the test does not have to wait)
 const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
 await page.goto(BASE); await page.waitForSelector('[data-act=next]');
 await page.evaluate(() => navigator.serviceWorker.ready); await page.reload(); await page.waitForSelector('[data-act=next]');
@@ -55,6 +55,24 @@ check('Mid-customer the page does NOT reload itself', await page.evaluate(() => 
 await page.click('[data-act=back-home]'); await page.waitForSelector('[data-act=next]');
 check('Once idle on Home the app reloads itself into version B', await until(async () => page.evaluate(() => document.documentElement.outerHTML.includes('VER:B')), 12000));
 check('Old cache from version A is cleaned up', await until(async () => !(await page.evaluate(() => caches.keys())).includes('test-cache-A'), 5000));
+// ---- version C is released while the phone just sits idle on Home: it must find, install and switch to it BY ITSELF (no tap, no reload, no manual update)
+setMarker('C', 'test-cache-C');
+check('A phone left idle on Home finds the new version by itself and reloads into it (nobody touches it)', await until(async () => page.evaluate(() => document.documentElement.outerHTML.includes('VER:C')), 20000));
+check('...and the old copy is cleaned up again', await until(async () => !(await page.evaluate(() => caches.keys())).includes('test-cache-B'), 6000));
+// a phone busy with a customer is left alone even while it keeps looking for updates
+await page.click('[data-act=next]'); await page.waitForSelector('[data-act=follow-new]');
+setMarker('D', 'test-cache-D');
+await sleep(8000);
+check('A phone in the middle of a customer finds version D in the background but does NOT reload until the customer is finished', await page.evaluate(() => !!document.querySelector('[data-act=follow-new]') && document.documentElement.outerHTML.includes('VER:C')) && (await page.evaluate(() => caches.keys())).includes('test-cache-D'));
+await page.click('[data-act=back-home]'); await page.waitForSelector('[data-act=next]');
+check('...then it switches to version D once idle on Home', await until(async () => page.evaluate(() => document.documentElement.outerHTML.includes('VER:D')), 12000));
+// the normal setting is every 10 minutes (a second phone without the test setting)
+{
+  const c2 = await browser.newContext(D); await c2.addInitScript(() => { try { localStorage.setItem('ecomsoc-sync-url', 'off'); } catch (e) {} });
+  const p2 = await c2.newPage(); await p2.goto(BASE); await p2.waitForSelector('[data-act=next]');
+  check('Normally a phone looks for a newer copy every 10 minutes, when the app is open and when it comes back to the app', (await p2.evaluate(() => CC.updateMs())) === 600000 && (await p2.evaluate(() => typeof CC.checkUpdate)) === 'function');
+  await c2.close();
+}
 // offline still works on the new version
 await ctx.setOffline(true); await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('[data-act=next]', { timeout: 6000 });
 check('New version opens with no network', true); await ctx.setOffline(false);
