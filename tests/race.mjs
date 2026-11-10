@@ -13,7 +13,7 @@ import { startMock } from './mock-rtdb.mjs';
 const ENGINE = { chromium, webkit }[process.env.BROWSER || 'chromium'];
 const IS_CHROMIUM = (process.env.BROWSER || 'chromium') === 'chromium';
 const N = +process.env.PHONES || 20;
-const LIVE = !!process.env.BASE_URL;
+const LIVE = !!(process.env.BASE_URL || process.env.REAL_DB);          // the real database (with the deployed app, or with this folder's app when REAL_DB=1)
 const DB = (process.env.SYNC_URL || 'https://ecomsoc-checkout-7k4q-default-rtdb.asia-southeast1.firebasedatabase.app').replace(/\/+$/, '');
 const ROOT = process.env.APP_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg' };
@@ -23,8 +23,9 @@ const web = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache' }); fs.createReadStream(f).pipe(res);
 });
 let mock = null;
-if (!LIVE) { await new Promise(r => web.listen(0, '127.0.0.1', r)); mock = await startMock(); mock.ctl.delayMs = 20; mock.ctl.jitterMs = 60; }
-const BASE = LIVE ? process.env.BASE_URL.replace(/\/?$/, '/') : `http://127.0.0.1:${web.address().port}/`;
+if (!process.env.BASE_URL) await new Promise(r => web.listen(0, '127.0.0.1', r));
+if (!LIVE) { mock = await startMock(); mock.ctl.delayMs = +process.env.DELAY || 20; mock.ctl.jitterMs = +process.env.JITTER || 60; }
+const BASE = process.env.BASE_URL ? process.env.BASE_URL.replace(/\/?$/, '/') : `http://127.0.0.1:${web.address().port}/`;
 const rest = async (m, p, body) => { const r = await fetch(`${DB}/${p}.json${m === 'GET' ? '' : '?print=silent'}`, { method: m, body: body === undefined ? undefined : JSON.stringify(body), headers: body === undefined ? undefined : { 'content-type': 'application/json' } }); return r.status === 200 ? r.json() : r.status; };
 const cloud = async segs => LIVE ? rest('GET', segs.join('/')) : mock.get(segs);
 const setMeta = async (ep, stock) => { if (LIVE) await rest('PUT', `events/${TEAM}/meta`, { epoch: ep, startStock: stock, resetAt: { '.sv': 'timestamp' }, by: 'race' }); else mock.db().events[TEAM].meta = { epoch: ep, startStock: stock, resetAt: Date.now(), by: 'race' }; };
@@ -40,7 +41,7 @@ const NOISE = /due to access control checks|Fetch API cannot load/;
 const WIN = { step: 'result', follow: 'new', member: 'new', qid: 'E01', attempt: 1, counted: true, picked: 'A', ok: true };
 const epochNow = async () => ((await cloud(['events', TEAM, 'meta'])) || {}).epoch || 'e0';
 const devsNow = async () => (await cloud(['events', TEAM, 'epochs', await epochNow(), 'devices'])) || {};
-const claimsNow = async () => (await cloud(['events', TEAM, 'epochs', await epochNow(), 'claims'])) || {};
+const claimsNow = async () => { const c = (await cloud(['events', TEAM, 'epochs', await epochNow(), 'claims'])) || {}; return Array.isArray(c) ? Object.fromEntries(c.map((v, i) => [String(i), v]).filter(([, v]) => v)) : c; };      // Firebase hands numbered keys 1, 2, 3 ... back as an array
 const sumServed = async () => Object.values(await devsNow()).reduce((a, d) => a + d.c.served, 0);
 
 if (LIVE) await setMeta('e0', 80); else mock.db().events = { [TEAM]: { meta: { epoch: 'e0', startStock: 80, resetAt: Date.now(), by: 'race' } } };
@@ -77,12 +78,19 @@ async function round(R, label) {
     if (now >= R) break;
   }
   await wait(2500);
+  if (process.env.DEBUG) {                                               // who claimed which serve number, and what each phone believed
+    const cl = await claimsNow(), ph = await Promise.all(pages.map(p => p.evaluate(() => ({ id: CC.state().id, served: CC.state().c.served, last: CC.net.lastClaim, stock: CC.state().startStock, rem: CC.remaining(), top: CC.net.claimTopUntil > Date.now(), log: CC.net.claimLog.slice(-3) }))));
+    const idx = Object.fromEntries(ph.map((x, i) => [x.id, 'P' + (i + 1)]));
+    console.log('  DEBUG claims:', JSON.stringify(Object.fromEntries(Object.entries(cl).map(([k, v]) => [k, idx[v.id] || v.id]))));
+    console.log('  DEBUG claim outcomes per phone:', ph.map((x, i) => 'P' + (i + 1) + ': ' + x.log.join('; ')).filter(x => !/: $/.test(x)).join(' | '));
+    console.log('  DEBUG phones that served:', ph.map((x, i) => x.served ? 'P' + (i + 1) + ' (last ' + x.last + ')' : null).filter(Boolean).join(', '), '| stock seen:', [...new Set(ph.map(x => x.stock))].join(','));
+  }
   const served = await Promise.all(pages.map(p => p.evaluate(() => CC.state().c.served)));
   const stillWaiting = await Promise.all(pages.map(p => p.evaluate(() => !!document.querySelector('[data-act=serve], #servebtn') || /Sold out/i.test(document.body.innerText))));
   const total = served.reduce((a, b) => a + b, 0);
   return { left, bursts: bursts + 1, total, db: await sumServed(), phonesServed: served.filter(x => x > 0).length, maxOne: Math.max(...served), claims: Object.keys(await claimsNow()).length, stillWaiting: stillWaiting.filter(Boolean).length };
 }
-for (const R of [1, 3, 8, 15]) {
+for (const R of [1, 3, 8, 15].filter(r => r <= N)) {              // (each phone serves at most once, so a round needs at least as many phones as portions)
   const r = await round(R);
   console.log(`  round with ${R} portion(s): ${r.left} showed, ${r.total} serves counted, ${r.phonesServed} phones served, database serves ${r.db}, claims ${r.claims}`);
   check(`${R} portion(s), ${N} phones tap Serve together: exactly ${R} serve${R === 1 ? '' : 's'} succeed (no over-serving)`, r.left === R && r.total === R && r.db === R, JSON.stringify(r));
@@ -125,7 +133,7 @@ if (LIVE) {                                                            // remove
   await rest('DELETE', `events/${TEAM}/meta`);
   check('Everything the test wrote to the real database was removed again', (await rest('GET', `events/${TEAM}`)) === null);
 }
-await browser.close(); if (!LIVE) { web.close(); await mock.close(); }
+await browser.close(); if (!process.env.BASE_URL) web.close(); if (mock) await mock.close();
 const bad = results.filter(r => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} race checks passed`);
 process.exit(bad.length ? 1 : 0);

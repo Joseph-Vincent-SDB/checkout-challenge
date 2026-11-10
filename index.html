@@ -965,7 +965,7 @@ function drawQuestion() {
 var net = { pollOk: 0, pollFails: 0, pushFails: 0, pushing: false, polling: false, pushStart: 0, pollStart: 0,
   nextPoll: 0, nextPush: 0, lastPush: 0, pollErr: '', pollMsg: '', pushErr: '', pushMsg: '', seen: {}, pollPromise: null, metaPending: false, metaTimer: null, metaWant: null, metaBusy: false,
   ctlWant: false, ctlBusy: false, ctlTimer: null, ctlFail: 0, ctlRev: 0, ctlPollAt: 0, adminSeen: null, adminPollAt: 0, adminNext: 0, adminPinging: false, adminFail: 0,
-  reportDirty: false, ctlFetching: false, noClaimsUntil: 0, claimTopUntil: 0, claimEp: '', lastClaim: 0, slim: false, slimUntil: 0, ctlSlim: false, ctlSlimUntil: 0, ctlSentAt: 0, rx: [], bat: null, refreshTo: '' };
+  reportDirty: false, ctlFetching: false, noClaimsUntil: 0, claimTopUntil: 0, claimWhy: '', claimLog: [], claimEp: '', lastClaim: 0, slim: false, slimUntil: 0, ctlSlim: false, ctlSlimUntil: 0, ctlSentAt: 0, rx: [], bat: null, refreshTo: '' };
 function syncOn() { return !!(SYNC_URL && S.team); }
 function base() { return SYNC_URL + '/events/' + S.team; }
 function unsent() { return Math.max(0, S.rev - S.acked); }
@@ -1984,27 +1984,31 @@ function doRetry() {
    can never both hand out the last cup, however many tap at the same instant. A phone that is offline, or whose database rules do not know claims yet,
    serves as before (it cannot be stopped without a connection). Returns 'ok' (serve), 'sold' (no portion left), 'busy' (the database is answering but so many phones are claiming that there was no time: tap again) or 'skip' (could not use claims). */
 async function claimServe(deadline) {            // deadline: the time by which a customer must be served whatever the network does
-  if (!syncOn() || syncState() !== 'ok' || Date.now() < net.noClaimsUntil || deadline - Date.now() < 300) return 'skip';
+  var why = function (w) { net.claimWhy = w; return 'skip'; };                 // (why a claim was not used: kept for diagnosis)
+  if (!syncOn() || syncState() !== 'ok') return why('not connected: ' + syncState());
+  if (Date.now() < net.noClaimsUntil) return why('rules do not know claims');
+  if (deadline - Date.now() < 300) return why('no time left');
   var team = S.team, ep = S.epoch, cap = S.startStock + totals().adj, url = base() + '/epochs/' + ep + '/claims';
   if (net.claimEp !== ep) { net.claimEp = ep; net.lastClaim = 0; }
   var slot = Math.max(totals().c.served, net.lastClaim) + 1, n = 0, busy = false, to = function () { return Math.max(400, Math.min(2500, deadline - Date.now())); };
+  var answered = function () { deadline = Math.max(deadline, Date.now() + 5000); };         // the database IS answering (it is only busy with other phones): keep going rather than give up; a hung network never gets here
   var topUrl = url + '.json?orderBy=%22%24key%22&limitToLast=1', highest = function (top) { var m = 0; if (top && typeof top === 'object') for (var k in top) m = Math.max(m, +k || 0); return m; };
   if (Date.now() < net.claimTopUntil) {                // while many phones are serving, this phone's own count is too old to guess the next number: ask for the highest one first
-    try { var t0 = await http('GET', topUrl, null, { timeout: to() }); var m0 = highest(t0); net.lastClaim = Math.max(net.lastClaim, m0); slot = Math.max(slot, m0 + 1); } catch (e0) { return 'skip'; }
+    try { var t0 = await http('GET', topUrl, null, { timeout: to() }); var m0 = highest(t0); answered(); net.lastClaim = Math.max(net.lastClaim, m0); slot = Math.max(slot, m0 + 1); } catch (e0) { return why('could not read the highest number: ' + (e0 && (e0.status || e0.name))); }
   }
   while (Date.now() < deadline - 250 && n++ < 60) {
     if (slot > cap) return 'sold';                                                   // every portion already has a serve number
     try { await http('PUT', url + '/' + slot + '.json?print=silent', JSON.stringify({ id: S.id }), { timeout: to() }); net.lastClaim = slot; return 'ok'; }
     catch (e) {
-      if (S.team !== team || S.epoch !== ep) return 'skip';
-      if (!(e && (e.status === 400 || e.status === 401 || e.status === 403))) return 'skip';       // no connection, slow or failing database: serve as before
-      var top; try { top = await http('GET', topUrl, null, { timeout: to() }); } catch (e2) { return 'skip'; }
-      var m = highest(top); net.claimTopUntil = Date.now() + 60000;
-      if (m < slot) { net.noClaimsUntil = Date.now() + 300000; return 'skip'; }                    // refused although nothing is taken: the rules do not know claims (older rules)
+      if (S.team !== team || S.epoch !== ep) return why('team or round changed');
+      if (!(e && (e.status === 400 || e.status === 401 || e.status === 403))) return why('database slow or unreachable: ' + (e && (e.status || e.name)));       // no connection, slow or failing database: serve as before
+      var top; try { top = await http('GET', topUrl, null, { timeout: to() }); } catch (e2) { return why('could not read the highest number: ' + (e2 && (e2.status || e2.name))); }
+      var m = highest(top); net.claimTopUntil = Date.now() + 60000; answered();
+      if (m < slot) { net.noClaimsUntil = Date.now() + 300000; return why('refused although free (older rules)'); }                    // refused although nothing is taken: the rules do not know claims (older rules)
       net.lastClaim = Math.max(net.lastClaim, m); slot = Math.max(slot, m) + 1; busy = true;       // that number is taken by another phone: go on from the highest one
     }
   }
-  return busy ? 'busy' : 'skip';          // out of time while the database was answering: do not serve blindly, ask for another tap
+  return busy ? 'busy' : why('out of time');          // out of time while the database was answering: do not serve blindly, ask for another tap
 }
 async function doServe() {
   var cu = cur(); if (!cu || cu.step !== 'result' || !cu.ok || serving) return;
@@ -2015,6 +2019,7 @@ async function doServe() {
   if (syncOn() && syncState() === 'ok' && remaining() <= CONFIG.lowStock) { try { await Promise.race([pollNow(1500), new Promise(function (r) { setTimeout(r, 1600); })]); } catch (e) {} }
   if (cur() !== cu) { serving = false; return; }
   var claim = await claimServe(t0 + 2300);
+  net.claimLog.push(claim + ' in ' + (Date.now() - t0) + ' ms' + (claim === 'skip' ? ' (' + net.claimWhy + ')' : '')); if (net.claimLog.length > 12) net.claimLog.shift();
   if (cur() !== cu) { serving = false; return; }
   if (claim === 'sold') { serving = false; toast('Sold out: another phone just served the last one'); net.nextPoll = 0; render(); return; }
   if (claim === 'busy') { serving = false; toast('Busy: tap Serve again'); render(); return; }

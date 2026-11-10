@@ -291,11 +291,12 @@ await tap(A, '[data-act=summary]'); await A.waitForSelector('#stats');
 check('The organiser Summary has the volunteer controls plus "Organiser console" (admin-open)', !!(await A.$('[data-act="stock+"]')) && !!(await A.$('[data-act=admin-open]')) && !!(await A.$('[data-hold]')));
 await tap(A, '[data-act=back-home]');
 // refresh all phones
-await V1.evaluate(() => { window.__mark = 1; });
+await V1.evaluate(() => { window.__mark = 1; }); await V2.evaluate(() => { window.__mark = 1; });
 await tap(A, '[data-act=admin-open]'); await tap(A, '[data-act=adm-refresh]');
 check('adm-refresh: asks first (nothing is sent yet)', !!(await A.$('#layer [data-act=adm-refresh-yes]')) && !((await ctlNow()) || {}).rl);
 await tap(A, '#layer [data-act=adm-refresh-yes]');
-check('adm-refresh-yes: every idle volunteer phone reloads itself', await ctlIs(c => typeof c.rl === 'string') && await until(async () => (await V1.evaluate(() => window.__mark)) !== 1 && !!(await V1.$('[data-act=next]')), 30000));
+check('adm-refresh-yes: every idle volunteer phone reloads itself', await ctlIs(c => typeof c.rl === 'string') && await until(async () => (await V1.evaluate(() => window.__mark)) !== 1 && !!(await V1.$('[data-act=next]')) && (await V2.evaluate(() => window.__mark)) !== 1 && !!(await V2.$('[data-act=next]')), 40000));
+await wait(1500);                                              // both phones are back on Home before the next step
 await tap(A, '[data-act=back-home]');
 
 /* ===== the hold-to-reset gesture and reset-yes ===== */
