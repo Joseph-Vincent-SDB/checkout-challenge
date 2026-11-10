@@ -18,6 +18,9 @@ Test engines: Chromium (Chrome and Android) and WebKit (the engine inside every 
 | The server sends odd or wrong-shaped data | Ignored safely. | `scenarios.mjs` (7) |
 | Network comes back after a failure | Unsent changes are retried immediately, not after the back-off. | `sync.mjs` (4), soak |
 | The database refuses writes (rules or setup problem) | Bar says "Sharing problem". Phone keeps working on its own. Recovers if fixed. | `sync.mjs` (11) |
+| A phone can READ the team but its own updates keep failing (a network or filter that lets reads through and blocks writes) | Never a green bar: after 3 failed sends the bar is red, "Other phones cannot see this phone", with the number of changes waiting; it keeps retrying, keeps every change, and turns green again by itself when sending works. | `visibility.mjs` (both engines) |
+| A phone joined a team nobody else is on (a mistyped or old team code) | Joins normally (green) for 20 s; if it still finds no organiser and no other phone the bar turns amber, "Connected, but alone on this team", and shows the team code to compare. A phone on the wrong code never mixes with the real team. | `visibility.mjs` |
+| A phone has just joined | Waits (at most 6 s) to learn which round the team is in, then reports in at once: listed on the other phones within seconds, no stray record in an old round. | `visibility.mjs`, `sync.mjs` |
 | Campus Wi-Fi or a content filter blocks `firebasedatabase.app` | **Cannot be tested here.** Phones would work alone (red bar). Test on the campus Wi-Fi before the event, and use mobile data if blocked. | pre-event check |
 | Firebase outage | As "no signal". Phones keep working and catch up later. | as above |
 
