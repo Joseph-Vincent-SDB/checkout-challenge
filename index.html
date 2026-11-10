@@ -365,7 +365,7 @@ var QUESTIONS = [
 /* ============================ END OF EDITABLE DATA ============================ */
 
 var LETTERS = ['A', 'B', 'C', 'D'];
-var APP_VERSION = '2.4';
+var APP_VERSION = '2.5';
 var APP_LEVEL = 4;       // written into each phone's record, so the organiser console can list every phone that is not on this newest copy
 var UNDOKEY = 'ecomsoc-admin-undo';               // the organiser phone's own list of changes it can undo
 /* these must be defined before the saved state is loaded below */
@@ -1627,9 +1627,11 @@ function statGrid() {
     s(c.hot, 'HOT DEAL draws', 'hot') + s(c.full, 'FULL PRICE draws') +
     s(c.retries, 'Retries given') + s(c.skips, 'Skips') + s(c.served, 'Food served');
 }
+/* The organiser phone's own customer and serve numbers are for the organiser: volunteer phones list that phone by name only (its serves still count in the team totals) */
+function hideNumbers(r) { return !!(r.admin && !r.me && !S.admin); }
 function phonesHtml() {
   return teamPhones().map(function (r) {
-    return '<div class="kv"><span>' + esc(r.name) + (r.me ? ' (you)' : '') + (r.hidePresence ? '' : '<br><small class="muted">' + esc(r.state) + '</small>') + '</span><span class="r">' + r.c.customers + ' customers<br>' + r.c.served + ' served</span></div>';
+    return '<div class="kv"><span>' + esc(r.name) + (r.me ? ' (you)' : '') + (r.hidePresence ? '' : '<br><small class="muted">' + esc(r.state) + '</small>') + '</span><span class="r">' + (hideNumbers(r) ? '' : r.c.customers + ' customers<br>' + r.c.served + ' served') + '</span></div>';
   }).join('');
 }
 function summaryText() {
@@ -1656,7 +1658,8 @@ function summaryText() {
     'Food served: ' + c.served,
     'Food remaining: ' + Math.max(0, s) + ' of ' + (S.startStock + t.adj) + (s < 0 ? ' (over-served by ' + (-s) + ')' : '')
   ];
-  if (recs.length > 1) { lines.push('By phone:'); recs.forEach(function (r) { lines.push('- ' + phoneName(r) + ': ' + r.c.customers + ' customers, ' + r.c.served + ' served'); }); }
+  var byPhone = recs.filter(function (r) { return S.admin || !S.adminInfo || r.id !== S.adminInfo.id; });          // volunteer phones do not get the organiser phone's own numbers in the copied summary either
+  if (byPhone.length > 1) { lines.push('By phone:'); byPhone.forEach(function (r) { lines.push('- ' + phoneName(r) + ': ' + r.c.customers + ' customers, ' + r.c.served + ' served'); }); }
   if (syncOn() && syncState() !== 'ok') lines.push('Note: this phone was offline, other phones last updated ' + ago(net.pollOk));
   return lines.filter(function (l) { return l !== null; }).join('\n');
 }
@@ -2263,7 +2266,7 @@ window.addEventListener('storage', function (e) {
 });
 
 /* test and debugging hooks */
-window.CC = { setAdmin: setAdmin, teamPhones: teamPhones, liveGrid: liveGrid, adminFp: adminFp, cleanCtl: cleanCtl, paceInfo: paceInfo, etaText: etaText, adminSet: adminSet, adminAlerts: adminAlerts, adminReport: adminReport, recordSample: recordSample, samples: function () { return samples; }, flushCtl: flushCtl, parseAdminKey: parseAdminKey, buildHandoff: buildHandoff, iabTapOpen: iabTapOpen, detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
+window.CC = { summaryText: summaryText, phonesHtml: phonesHtml, setAdmin: setAdmin, teamPhones: teamPhones, liveGrid: liveGrid, adminFp: adminFp, cleanCtl: cleanCtl, paceInfo: paceInfo, etaText: etaText, adminSet: adminSet, adminAlerts: adminAlerts, adminReport: adminReport, recordSample: recordSample, samples: function () { return samples; }, flushCtl: flushCtl, parseAdminKey: parseAdminKey, buildHandoff: buildHandoff, iabTapOpen: iabTapOpen, detectIab: detectIab, QUESTIONS: QUESTIONS, CONFIG: CONFIG, drawQuestion: drawQuestion, state: function () { return S; }, reset: resetAll,
   commit: commit, remaining: remaining, totals: totals, syncState: syncState, net: net, tick: tick, pollNow: pollNow, syncOn: syncOn, unsent: unsent,
   deliveryInfo: deliveryInfo, undoLast: undoLast, undoStack: function () { return undoStack; }, blockInfo: blockInfo, pollEveryMs: pollEveryMs, autoPollSecs: autoPollSecs, qOffMap: qOffMap, adminCsv: adminCsv, MODES: MODES, activeMode: activeMode, displayLog: displayLog,
   cleanPatch: cleanPatch, ctlBody: ctlBody, pendingNote: pendingNote, rxPerMin: rxPerMin, livePhones: livePhones, APP_LEVEL: APP_LEVEL, checkUpdate: checkUpdate, updateMs: function () { return updMs; } };

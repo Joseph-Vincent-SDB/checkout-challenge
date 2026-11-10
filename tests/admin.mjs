@@ -426,7 +426,7 @@ if (want('J')) {
   await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
   await until(async () => /Joseph's Phone \(Admin\)/.test((await rows(V))[0] || ''), 16000);
   let r = await rows(V);
-  check('Volunteer Summary: "Joseph\'s Phone (Admin)" is the first row with its numbers only (no online/offline, no last seen), then this phone', /^Joseph's Phone \(Admin\) 0 customers 0 served$/.test(r[0]) && /^Volunteer 1 \(you\)/.test(r[1]), JSON.stringify(r));
+  check('Volunteer Summary: "Joseph\'s Phone (Admin)" is the first row, by name only (no numbers, no online/offline, no last seen), then this phone', /^Joseph's Phone \(Admin\)$/.test(r[0]) && /^Volunteer 1 \(you\)/.test(r[1]), JSON.stringify(r));
   const seenOnline = { row: r[0], tiles: (await V.innerText('#livegrid2')).replace(/\s+/g, ' ') };
   await tap(A, '[data-act=summary]'); await A.waitForSelector('#phones');
   await until(async () => (await rows(A)).length >= 2, 16000);
@@ -438,7 +438,7 @@ if (want('J')) {
   await V.evaluate(() => { const S = CC.state(), k = S.adminInfo.id; CC.net.adminSeen = { hb: S.adminInfo.hb, t: Date.now() - 80000 }; if (CC.net.seen[k]) CC.net.seen[k].t = Date.now() - 80000; });
   await tap(V, '[data-act=back-home]'); await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
   r = await rows(V);
-  check('With the admin phone offline it is still the first row and shows nothing about online, offline or last seen', /^Joseph's Phone \(Admin\) 0 customers 0 served$/.test(r[0]) && !/online|offline|seen/i.test(r[0]), JSON.stringify(r));
+  check('With the admin phone offline it is still the first row and shows nothing about online, offline or last seen', /^Joseph's Phone \(Admin\)$/.test(r[0]) && !/online|offline|seen/i.test(r[0]), JSON.stringify(r));
   const tilesNow = (await V.innerText('#livegrid2')).replace(/\s+/g, ' ');
   check('...and the volunteer screens are identical whether the admin phone is online or offline (row and phones-online tile, 1/1 volunteer phone)', r[0] === seenOnline.row && tilesNow.replace(/\d+ Serves\/hour|- Serves\/hour/, '') === seenOnline.tiles.replace(/\d+ Serves\/hour|- Serves\/hour/, '') && /1\/1 Phones online/.test(tilesNow), seenOnline.tiles + ' || ' + tilesNow);
   check('...and the "Shared: N phones online" line does not count the admin phone either', /Shared: 1 phone online/.test(await V.innerText('#syncrow')), await V.innerText('#syncrow'));
@@ -446,19 +446,19 @@ if (want('J')) {
   await V.evaluate(() => CC.reset()); await until(async () => (await V.evaluate(() => CC.state().epoch)) !== 'e0', 16000); await wait(2600);
   await tap(V, '[data-act=back-home]').catch(() => {}); await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
   r = await rows(V);
-  check('After a reset (new round, no record yet for the admin phone) it is still the first row, with 0 customers', /^Joseph's Phone \(Admin\) 0 customers 0 served$/.test(r[0]), JSON.stringify(r));
+  check('After a reset (new round, no record yet for the admin phone) it is still the first row, by name only', /^Joseph's Phone \(Admin\)$/.test(r[0]), JSON.stringify(r));
   // the volunteer phone loses its network and is reloaded: the list comes from what it remembered
   mock.ctl.refuse = true; await V.reload(); await V.waitForSelector('#app *'); await wait(600);
   await tap(V, '[data-act=summary]'); await V.waitForSelector('#phones');
   r = await rows(V);
-  check('A volunteer phone that reloads with no connection still lists the organiser phone first', /^Joseph's Phone \(Admin\) 0 customers 0 served$/.test(r[0]), JSON.stringify(r));
+  check('A volunteer phone that reloads with no connection still lists the organiser phone first', /^Joseph's Phone \(Admin\)$/.test(r[0]), JSON.stringify(r));
   mock.ctl.refuse = false;
   // a phone that joins late sees it too (the organiser phone was last seen five minutes ago)
   mock.db().events[TEAM].admin.hb = Date.now() - 5 * 60000;
   const V3 = await mkVol('Volunteer 3'); await tap(V3, '[data-act=summary]'); await V3.waitForSelector('#phones');
   await until(async () => /^Joseph's Phone \(Admin\)/.test((await rows(V3))[0] || ''), 16000);
   r = await rows(V3);
-  check('A phone that joins later also sees the organiser phone first, with no presence information', /^Joseph's Phone \(Admin\) 0 customers 0 served$/.test(r[0]) && /Volunteer 3 \(you\)/.test(r[1]), JSON.stringify(r));
+  check('A phone that joins later also sees the organiser phone first, with no presence information', /^Joseph's Phone \(Admin\)$/.test(r[0]) && /Volunteer 3 \(you\)/.test(r[1]), JSON.stringify(r));
   // the admin phone comes back
   const syncBefore = (await V3.innerText('#syncrow')).split('\n')[0];
   const A2 = await phone('', { join: false, init: initHash, initArg: TESTHASH, ctx: { storageState: state } }); await A2.goto('about:blank'); await A2.goto(BASE); await A2.waitForSelector('#app *');

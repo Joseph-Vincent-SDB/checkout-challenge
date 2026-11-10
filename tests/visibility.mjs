@@ -94,6 +94,25 @@ check('3d. As soon as a second phone joins the same code the warning goes away',
 check('3e. The real team\'s phones never show that warning (an organiser is there)', !/alone/i.test(await bar(A)) && !/alone/i.test(await bar(B)));
 check('3f. The organiser phone itself is never told it is "alone"', !/alone/i.test(await bar(H)));
 
+/* ---------- 5. the organiser phone's own numbers are for the organiser ---------- */
+await H.evaluate(() => { const st = CC.state(); st.c.customers = 7; st.c.served = 5; CC.commit(); });
+await A.evaluate(() => { const st = CC.state(); st.c.customers = 3; st.c.served = 2; CC.commit(); });
+await until(async () => { const r = await A.evaluate(() => CC.teamPhones().filter(x => x.admin).map(x => x.c.customers)); return r[0] === 7; }, 15000);   // the volunteer phone HAS the number (it is in the team totals) ...
+const rowsHtml = async (p) => p.evaluate(() => { const d = document.createElement('div'); d.innerHTML = CC.phonesHtml(); return [...d.querySelectorAll('.kv')].map(k => k.innerText || k.textContent); });
+const vRows = await rowsHtml(A), adminRow = vRows.find(t => /Admin/.test(t)), ownRow = vRows.find(t => /Phone A/.test(t)), otherRow = vRows.find(t => /Phone B/.test(t));
+check('5a. A volunteer phone still lists the organiser phone by name in Phones', !!adminRow, JSON.stringify(vRows));
+check('5b. ...but without its customers and served numbers', adminRow && !/customers|served|\b7\b|\b5\b/.test(adminRow), adminRow);
+check('5c. ...while its own row and the other volunteers\' rows keep their numbers', /3 customers/.test(ownRow || '') && /2 served/.test(ownRow || '') && /customers/.test(otherRow || ''), JSON.stringify([ownRow, otherRow]));
+const copyA = await A.evaluate(() => CC.summaryText());
+check('5d. The summary a volunteer copies has no line with the organiser phone\'s numbers', !/Admin[^\n]*customers/.test(copyA) && /By phone:/.test(copyA) && /Phone A: 3 customers/.test(copyA), copyA.split('\n').slice(-5).join(' | '));
+await until(async () => (await H.evaluate(() => CC.teamPhones().filter(x => !x.me).map(x => x.c.customers))).includes(3) && (await A.evaluate(() => CC.remaining())) === (await H.evaluate(() => CC.remaining())), 20000);       // let every phone catch up before comparing
+const totalServed = await A.evaluate(() => { let n = 0; CC.teamPhones().forEach(x => { n += x.c.served; }); return n; });
+check('5e. ...the food count on the volunteer phone counts all the serves (organiser 5 + Phone A 2 + the rest)', totalServed >= 7 && (await A.evaluate(() => CC.remaining())) === (await H.evaluate(() => CC.remaining())), totalServed + ' served in the list, remaining A=' + await A.evaluate(() => CC.remaining()) + ' H=' + await H.evaluate(() => CC.remaining()));
+const hRows = await rowsHtml(H);
+check('5f. The organiser phone sees every number, its own and the volunteers\'', hRows.some(t => /Admin/.test(t) && /7 customers/.test(t) && /5 served/.test(t)) && hRows.some(t => /Phone A/.test(t) && /3 customers/.test(t)), JSON.stringify(hRows));
+const copyH = await H.evaluate(() => CC.summaryText());
+check('5g. ...and the organiser\'s copied summary lists every phone', /Admin[^\n]*: 7 customers, 5 served/.test(copyH) && /Phone A: 3 customers, 2 served/.test(copyH), copyH.split('\n').slice(-5).join(' | '));
+
 check('No JavaScript errors on any phone', phones.every(p => p.errors.length === 0), phones.flatMap(p => p.errors).slice(0, 3).join(' | '));
 for (const p of phones) await p.ctx.close().catch(() => {});
 await browser.close(); web.close(); await mock.close();
