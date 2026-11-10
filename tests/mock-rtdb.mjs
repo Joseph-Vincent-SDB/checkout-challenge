@@ -93,7 +93,7 @@ function prune(o) {                      // RTDB drops nulls and empty objects
 
 export function startMock() {
   let db = {};
-  const ctl = { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null, filter: null, legacyRules: false };
+  const ctl = { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null, filter: null, legacyRules: false, failWriteIds: [] };
   const stats = { total: 0, byMethod: {}, log: [] };
   const getAt = segs => { let n = db; for (const s of segs) { if (n && typeof n === 'object' && s in n) n = n[s]; else return null; } return n === undefined ? null : n; };
   const setAt = (segs, val) => {
@@ -116,6 +116,7 @@ export function startMock() {
       const respond = () => {
         if (ctl.hang) return;                                                    // never answers: the client must time out
         if (ctl.filter && !ctl.filter(req.method, u.pathname)) { /* filter says: behave normally */ }
+        if (ctl.failWriteIds && ctl.failWriteIds.length && req.method !== 'GET' && ctl.failWriteIds.some(id => u.pathname.includes(id))) { res.writeHead(503, { ...cors, 'content-type': 'application/json' }); return res.end('{"error":"injected: writes from this phone fail"}'); }       // a phone that can READ but whose own updates cannot be sent
         if (ctl.failRate && Math.random() < ctl.failRate) { res.writeHead(ctl.failStatus, { ...cors, 'content-type': 'application/json' }); return res.end('{"error":"injected"}'); }
         LEGACY = !!ctl.legacyRules;
         const send = (code, obj) => { res.writeHead(code, { ...cors, 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
@@ -175,7 +176,7 @@ export function startMock() {
       url: `http://127.0.0.1:${server.address().port}`,
       ctl, stats,
       db: () => db,
-      reset() { db = {}; Object.assign(ctl, { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null, legacyRules: false }); stats.total = 0; stats.byMethod = {}; stats.log = []; },
+      reset() { db = {}; Object.assign(ctl, { delayMs: 0, jitterMs: 0, failRate: 0, failStatus: 500, dropResponse: false, hang: false, refuse: false, deny: false, garbage: false, weird: null, legacyRules: false, failWriteIds: [] }); stats.total = 0; stats.byMethod = {}; stats.log = []; },
       get: segs => getAt(segs),
       close: () => new Promise(r => { server.closeAllConnections?.(); server.close(r); })
     });

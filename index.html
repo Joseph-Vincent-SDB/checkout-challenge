@@ -365,7 +365,7 @@ var QUESTIONS = [
 /* ============================ END OF EDITABLE DATA ============================ */
 
 var LETTERS = ['A', 'B', 'C', 'D'];
-var APP_VERSION = '2.3';
+var APP_VERSION = '2.4';
 var APP_LEVEL = 4;       // written into each phone's record, so the organiser console can list every phone that is not on this newest copy
 var UNDOKEY = 'ecomsoc-admin-undo';               // the organiser phone's own list of changes it can undo
 /* these must be defined before the saved state is loaded below */
@@ -846,7 +846,7 @@ async function applyAdminKey(key, quiet) {
 function teamPhones(all) {            // all = true also lists phones the organiser hid (the console needs them to show them again)
   var now = Date.now(), rows = [], ai = syncOn() ? S.adminInfo : null, aid = ai ? ai.id : '', c = ctlLive(), gone = c ? c.gone : [], hold = c ? c.hold : [];
   var me = { id: S.id, me: true, admin: isHead(), name: S.label || 'This phone', c: S.c, last: S.last, hb: now, app: APP_LEVEL, cr: S.ctl ? S.ctl.rev : -1, bat: net.bat ? net.bat.p : -1, chg: net.bat ? net.bat.chg : false, held: false, gone: false,
-    state: syncOn() ? (syncState() === 'ok' ? 'online' : (syncState() === 'connecting' ? 'this phone, connecting' : 'this phone, offline')) : 'this phone', online: syncOn() ? syncState() === 'ok' : true, lost: false };
+    state: syncOn() ? (syncState() === 'ok' ? 'online' : (syncState() === 'connecting' ? 'this phone, connecting' : (syncState() === 'nosend' ? 'this phone, cannot send' : 'this phone, offline'))) : 'this phone', online: syncOn() ? syncState() === 'ok' : true, lost: false };
   if (isHead()) rows.push(me);
   if (ai && !isHead()) {
     var pr = S.peers[aid], sn = net.seen[aid], as = net.adminSeen;
@@ -896,6 +896,7 @@ function deliveryInfo() {
 function adminAlerts() {
   var a = [], rem = remaining(), st = syncState(), c = S.ctl;
   if (!syncOn()) a.push({ t: 'This phone is not on the team yet. Join the team so your controls reach the other phones.', k: 'bad' });
+  else if (st === 'nosend') a.push({ t: 'This phone can read the team but cannot send to it, so other phones do not see it or your changes. Check the signal; it keeps trying.', k: 'bad' });
   else if (st === 'offline' || st === 'error') a.push({ t: 'This phone is offline. Your changes are saved and will send when it reconnects.', k: 'bad' });
   if (pendingCtl()) a.push({ t: 'An admin change is waiting to send.', k: 'warn' });
   if ((net.ctlSlim && Date.now() < net.ctlSlimUntil) || (net.slim && Date.now() < net.slimUntil)) a.push({ t: 'The database rules are older than this app, so the newest organiser controls cannot reach other phones. Publish database.rules.json (see the README).', k: 'bad' });
@@ -975,7 +976,7 @@ function drawQuestion() {
 var net = { pollOk: 0, pollFails: 0, pushFails: 0, pushing: false, polling: false, pushStart: 0, pollStart: 0,
   nextPoll: 0, nextPush: 0, lastPush: 0, pollErr: '', pollMsg: '', pushErr: '', pushMsg: '', seen: {}, pollPromise: null, metaPending: false, metaTimer: null, metaWant: null, metaBusy: false,
   ctlWant: false, ctlBusy: false, ctlTimer: null, ctlFail: 0, ctlRev: 0, ctlPollAt: 0, adminSeen: null, adminPollAt: 0, adminNext: 0, adminPinging: false, adminFail: 0,
-  reportDirty: false, ctlFetching: false, noClaimsUntil: 0, claimTopUntil: 0, claimWhy: '', claimLog: [], claimEp: '', lastClaim: 0, slim: false, slimUntil: 0, ctlSlim: false, ctlSlimUntil: 0, ctlSentAt: 0, rx: [], bat: null, refreshTo: '' };
+  reportDirty: false, ctlFetching: false, noClaimsUntil: 0, claimTopUntil: 0, claimWhy: '', claimLog: [], claimEp: '', lastClaim: 0, slim: false, slimUntil: 0, ctlSlim: false, ctlSlimUntil: 0, ctlSentAt: 0, rx: [], bat: null, refreshTo: '', epochOk: false, epochWait: Date.now() + 6000, adminChecked: false, okSince: 0 };
 function syncOn() { return !!(SYNC_URL && S.team); }
 function base() { return SYNC_URL + '/events/' + S.team; }
 function unsent() { return Math.max(0, S.rev - S.acked); }
@@ -998,6 +999,7 @@ function syncState() {
   if (net.pushErr || net.pollErr) return 'error';
   if (!net.pollOk && !net.pollFails) return 'connecting';
   if (net.pollFails >= 2 || Date.now() - net.pollOk > 9000) return 'offline';
+  if (net.pushFails >= 3) return 'nosend';             // this phone can LOOK at the team but its own updates keep failing: the other phones cannot see it (never show that as a green bar)
   return 'ok';
 }
 function onlineCount() {
@@ -1074,7 +1076,7 @@ function pushNow() {
 }
 function adoptEpoch(ep, quiet) {
   var had = S.c.customers || S.c.served || S.adj;
-  S.epoch = ep; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0; S.peers = {}; net.seen = {}; save(); clearSamples();
+  S.epoch = ep; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0; S.peers = {}; net.seen = {}; net.reportDirty = true; net.nextPush = 0; save(); clearSamples();          // report in right away from the new round: the other phones list this phone now, not after the next heartbeat
   if (had && !quiet) toast('Tallies were reset on another phone');
 }
 function pollNow(timeout) {
@@ -1119,13 +1121,14 @@ function pollNow(timeout) {
           net.adminPollAt = Date.now();
           var ad = await http('GET', b + '/admin.json', null, { timeout: to });
           if (S.team !== team) return;
-          adoptAdminInfo(ad);
+          adoptAdminInfo(ad); net.adminChecked = true;
         }
       } catch (e) {}
+      net.epochOk = true; if (!net.okSince) net.okSince = Date.now();
       net.pollOk = Date.now(); net.pollFails = 0; net.pollErr = ''; net.pollMsg = ''; net.nextPoll = Date.now() + Math.round(pollEveryMs() * (livePhones() > 12 ? 0.92 + Math.random() * 0.16 : 1));      // with many phones online a little random spread, so they do not all ask in the same instant
       recordSample(false);
       if (net.pushFails > 0) net.nextPush = 0;            // the network demonstrably works again: retry unsent changes now, not after the back-off
-    } catch (e) { netErr(e, 'poll'); net.pollFails++; net.nextPoll = Date.now() + Math.max(CONFIG.pollMs, backoff(net.pollFails)); }
+    } catch (e) { netErr(e, 'poll'); net.pollFails++; net.okSince = 0; net.nextPoll = Date.now() + Math.max(CONFIG.pollMs, backoff(net.pollFails)); }
     finally { net.polling = false; liveUpdate(); }
   })();
   return net.pollPromise;
@@ -1163,7 +1166,8 @@ function tick() {
   adminPing();
   if (!net.polling && now - net.ctlPollAt >= ctlEvery()) pollCtlOnly();
   if (net.pushing && now - net.pushStart > 15000) net.pushing = false;
-  if (!net.pushing && now >= net.nextPush && (unsent() > 0 || net.reportDirty || now - net.lastPush >= CONFIG.heartbeatMs)) pushNow();
+  var epochKnown = net.epochOk || now >= net.epochWait;            // a phone that has just joined first learns which round the team is in, so its first record goes to the right place (not to a dead round)
+  if (epochKnown && !net.pushing && now >= net.nextPush && (unsent() > 0 || net.reportDirty || now - net.lastPush >= CONFIG.heartbeatMs)) pushNow();
   if (!net.polling && now >= net.nextPoll) pollNow();
 }
 setInterval(tick, 500);
@@ -1245,9 +1249,9 @@ function localReset() {
 }
 function joinTeam(code) {
   net.lastClaim = 0; net.claimEp = ''; net.noClaimsUntil = 0; net.claimTopUntil = 0; S.id = newId(); S.team = code; S.epoch = 'e0'; S.peers = {}; S.c = zeroC(); S.adj = 0; S.first = null; S.last = null; S.rev = 0; S.acked = 0;
-  S.startStock = CONFIG.defaultStock; S.skipJoin = true; S.ctl = null; S.seenMsg = ''; S.seenDm = ''; S.seenRl = ''; S.rlInit = false; S.cp = {}; S.cl = []; S.adminInfo = null; net.adminSeen = null; net.adminPollAt = 0; net.ctlPollAt = 0; net.adminNext = 0; net.ctlWant = false; net.ctlRev = 0; updateBcast(); net.seen = {}; net.pollOk = 0; net.pollFails = 0; net.pollErr = ''; net.pushErr = ''; net.metaPending = false; net.metaWant = null; save(); wakeSync();
+  S.startStock = CONFIG.defaultStock; S.skipJoin = true; S.ctl = null; S.seenMsg = ''; S.seenDm = ''; S.seenRl = ''; S.rlInit = false; S.cp = {}; S.cl = []; S.adminInfo = null; net.adminSeen = null; net.adminPollAt = 0; net.ctlPollAt = 0; net.adminNext = 0; net.ctlWant = false; net.ctlRev = 0; updateBcast(); net.seen = {}; net.pollOk = 0; net.pollFails = 0; net.pushFails = 0; net.pollErr = ''; net.pushErr = ''; net.epochOk = false; net.epochWait = Date.now() + 6000; net.adminChecked = false; net.okSince = 0; net.metaPending = false; net.metaWant = null; save(); wakeSync();
 }
-function leaveTeam() { S.team = ''; S.peers = {}; S.ctl = null; S.seenMsg = ''; S.seenDm = ''; S.seenRl = ''; S.rlInit = false; S.cp = {}; S.cl = []; S.adminInfo = null; net.adminSeen = null; net.ctlPollAt = 0; net.adminPollAt = 0; net.ctlWant = false; updateBcast(); S.skipJoin = true; net.seen = {}; net.pollErr = ''; net.pushErr = ''; save(); }
+function leaveTeam() { S.team = ''; S.peers = {}; S.ctl = null; S.seenMsg = ''; S.seenDm = ''; S.seenRl = ''; S.rlInit = false; S.cp = {}; S.cl = []; S.adminInfo = null; net.adminSeen = null; net.ctlPollAt = 0; net.adminPollAt = 0; net.ctlWant = false; updateBcast(); S.skipJoin = true; net.seen = {}; net.pollErr = ''; net.pushErr = ''; net.pushFails = 0; net.adminChecked = false; net.okSince = 0; save(); }
 function hasTallies() { return !!(S.c.customers || S.c.served || S.adj || S.c.skips); }
 
 /* ---------- wake lock ---------- */
@@ -1406,7 +1410,11 @@ function syncParts() {
   if (s === 'off') { t = 'Not shared: this phone only'; sub = 'Sharing is not set up'; }
   else if (s === 'join') { t = 'Not shared: tap to join your team'; sub = 'Food count is for this phone only'; }
   else if (s === 'connecting') { t = 'Connecting to your team...'; sub = u ? ch(u) + ' waiting to send' : 'One moment'; }
-  else if (s === 'ok') { cls = 'ok'; t = 'Shared: ' + n + ' phone' + (n === 1 ? '' : 's') + ' online'; sub = u > 0 ? 'Sending ' + ch(u) + '...' : 'Updated ' + ago(net.pollOk); }
+  else if (s === 'ok') {
+    cls = 'ok'; t = 'Shared: ' + n + ' phone' + (n === 1 ? '' : 's') + ' online'; sub = u > 0 ? 'Sending ' + ch(u) + '...' : 'Updated ' + ago(net.pollOk);
+    if (!S.admin && n === 1 && net.adminChecked && !S.adminInfo && net.okSince && Date.now() - net.okSince > 20000) { cls = 'warn'; t = 'Connected, but alone on this team'; sub = 'No organiser or other phone found. Check the team code ' + fmtTeam(S.team) + ' matches the organiser\'s.'; }          // reading works but this team has no organiser record at all: usually a mistyped or old team code
+  }
+  else if (s === 'nosend') { cls = 'bad'; t = 'Other phones cannot see this phone'; sub = 'Updates are not sending' + (u ? ' (' + ch(u) + ' waiting)' : '') + '. Check the signal. This phone keeps trying.'; }
   else if (s === 'offline') { cls = 'bad'; t = 'Offline: food count may be out of date'; sub = (u ? ch(u) + ' will send when back online. ' : '') + 'Last update ' + ago(net.pollOk); }
   else { cls = 'bad'; t = 'Sharing problem: ' + (net.pushErr ? net.pushMsg : net.pollMsg); sub = 'Tell the organiser. This phone still works.'; }
   return { cls: cls, html: '<span class="dot" aria-hidden="true"></span><span><span id="synctxt">' + esc(t) + '</span><small>' + esc(sub) + '</small></span>' };

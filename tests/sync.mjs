@@ -336,6 +336,7 @@ if (mock) {   // fault injection needs the mock database
 /* ===================== 12. junk in the database, wrong team, migration ===================== */
 if (mock) {   // fault injection needs the mock database
   const A = await phone('Phone A'); await until(async () => (await st(A)) === 'ok');
+  await until(async () => ((mock.get(['events', TEAM, 'epochs', 'e0']) || {}).devices || null), 6000);     // (a new phone first learns the round, then writes its record: a moment after the green bar)
   const devs = mock.db().events[TEAM].epochs.e0.devices;
   devs['zzzzzzzzzzzz'] = { c: 'oops', rev: 'x' };
   devs['yyyyyyyyyyyy'] = { c: { customers: -9, served: 'many', won: 1e99 }, adj: 'x', rev: 1, hb: 1 };

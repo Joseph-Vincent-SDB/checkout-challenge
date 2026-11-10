@@ -311,19 +311,19 @@ if (want('9c')) {
   const navs = p => p.evaluate(() => window.__navs || []);
   const pure = await phone('', { join: false });
   const urls = await pure.evaluate(() => ({
-    ios: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA'),
+    ios: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=QWERTYUP'),
     iosPlain: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/'),
     iosHttp: CC.buildHandoff('ios', 'http://127.0.0.1:8080/'),
-    igIos: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA', 'Instagram'),
+    igIos: CC.buildHandoff('ios', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=QWERTYUP', 'Instagram'),
     fbIosApp: CC.buildHandoff('ios', 'https://x.test/', 'Facebook or Messenger'),
     igAndroidApp: CC.buildHandoff('android', 'https://x.test/', 'Instagram'),
-    android: CC.buildHandoff('android', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA'),
+    android: CC.buildHandoff('android', 'https://joseph-vincent-sdb.github.io/checkout-challenge/#t=QWERTYUP'),
     other: CC.buildHandoff('other', 'https://x.test/')
   }));
-  check('iPhone handoff link is x-safari-https://... and keeps the team code', urls.ios === 'x-safari-https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA' && urls.iosPlain === 'x-safari-https://joseph-vincent-sdb.github.io/checkout-challenge/' && urls.iosHttp === 'x-safari-http://127.0.0.1:8080/', JSON.stringify(urls.ios));
+  check('iPhone handoff link is x-safari-https://... and keeps the team code', urls.ios === 'x-safari-https://joseph-vincent-sdb.github.io/checkout-challenge/#t=QWERTYUP' && urls.iosPlain === 'x-safari-https://joseph-vincent-sdb.github.io/checkout-challenge/' && urls.iosHttp === 'x-safari-http://127.0.0.1:8080/', JSON.stringify(urls.ios));
   check('Instagram on iPhone uses its own instagram://extbrowser/?url=... link (x-safari is blocked there) with the encoded team code; other apps keep x-safari; Android is unchanged by the app name',
-    urls.igIos === 'instagram://extbrowser/?url=' + encodeURIComponent('https://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA') && urls.fbIosApp === 'x-safari-https://x.test/' && urls.igAndroidApp.startsWith('intent://x.test/#Intent;scheme=https;'), urls.igIos);
-  check('Android handoff link is an intent:// link for the default browser (no package forced) and keeps the team code', /^intent:\/\/joseph-vincent-sdb\.github\.io\/checkout-challenge\/#t=6TRDH2ZA#Intent;scheme=https;S\.browser_fallback_url=https%3A%2F%2Fjoseph-vincent-sdb\.github\.io%2Fcheckout-challenge%2F%236TRDH2ZA;end$/.test(urls.android.replace('%23t%3D','%236TRDH2ZA')) || (urls.android.startsWith('intent://joseph-vincent-sdb.github.io/checkout-challenge/#t=6TRDH2ZA#Intent;scheme=https;') && urls.android.endsWith(';end') && !/package=/.test(urls.android)), urls.android);
+    urls.igIos === 'instagram://extbrowser/?url=' + encodeURIComponent('https://joseph-vincent-sdb.github.io/checkout-challenge/#t=QWERTYUP') && urls.fbIosApp === 'x-safari-https://x.test/' && urls.igAndroidApp.startsWith('intent://x.test/#Intent;scheme=https;'), urls.igIos);
+  check('Android handoff link is an intent:// link for the default browser (no package forced) and keeps the team code', /^intent:\/\/joseph-vincent-sdb\.github\.io\/checkout-challenge\/#t=QWERTYUP#Intent;scheme=https;S\.browser_fallback_url=https%3A%2F%2Fjoseph-vincent-sdb\.github\.io%2Fcheckout-challenge%2F%23QWERTYUP;end$/.test(urls.android.replace('%23t%3D','%23QWERTYUP')) || (urls.android.startsWith('intent://joseph-vincent-sdb.github.io/checkout-challenge/#t=QWERTYUP#Intent;scheme=https;') && urls.android.endsWith(';end') && !/package=/.test(urls.android)), urls.android);
   check('Unknown systems get no handoff link', urls.other === '');
   await pure.ctx.close(); phones.pop();
 
